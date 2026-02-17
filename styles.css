@@ -3615,9 +3615,68 @@
             margin-top: 10px;
         }
 
+        .vocab-quiz-speak-btn {
+            background: #8b5cf6;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            font-size: 0.85em;
+            cursor: pointer;
+            margin-left: 8px;
+            vertical-align: middle;
+            transition: all 0.2s;
+            line-height: 30px;
+            padding: 0;
+        }
+
+        .vocab-quiz-speak-btn:hover {
+            background: #7c3aed;
+            transform: scale(1.1);
+        }
+
+        .vocab-quiz-speak-btn.speaking {
+            animation: pulse-speak 1s infinite;
+        }
+
+        .vocab-quiz-word-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .vocab-quiz-word-speak {
+            background: #3b82f6;
+            border: none;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            min-width: 28px;
+            font-size: 0.75em;
+            cursor: pointer;
+            transition: all 0.2s;
+            line-height: 28px;
+            padding: 0;
+            flex-shrink: 0;
+        }
+
+        .vocab-quiz-word-speak:hover {
+            background: #2563eb;
+            transform: scale(1.1);
+        }
+
+        .vocab-quiz-word-speak.speaking {
+            animation: pulse-speak 1s infinite;
+        }
+
+        @keyframes pulse-speak {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
         .vocab-quiz-words {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
             gap: 12px;
             margin-bottom: 20px;
         }
@@ -3633,6 +3692,7 @@
             cursor: pointer;
             transition: all 0.2s;
             text-transform: capitalize;
+            flex: 1;
         }
 
         body.dark-mode .vocab-quiz-word-btn {

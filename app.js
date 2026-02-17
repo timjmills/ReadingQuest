@@ -1240,26 +1240,35 @@ function displayVocabQuizQuestion() {
         shuffledWords[j] = tmp;
     }
 
+    var escapedDef = current.def.replace(/'/g, "\\'");
     var html = '<div class="vocab-quiz">';
     html += '<div class="vocab-quiz-progress">Word ' + (vocabQuizIndex + 1) + ' of ' + total + '</div>';
     html += '<div class="vocab-quiz-score-bar">Score: ' + vocabQuizScore + '/' + (vocabQuizIndex) + '</div>';
     html += '<div class="vocab-quiz-prompt">Which word matches this definition?</div>';
     html += '<div class="vocab-quiz-def-card">';
-    html += '<div class="quiz-def-label">Definition</div>';
+    html += '<div class="quiz-def-label">Definition <button class="vocab-quiz-speak-btn" onclick="speakText(\'' + escapedDef + '\', this)" title="Listen to definition">🔊</button></div>';
     html += '<div class="quiz-def-text">' + current.def + '</div>';
     if (current.pos) html += '<span class="vocab-quiz-pos">' + current.pos + '</span>';
     html += '</div>';
     html += '<div class="vocab-quiz-words">';
     shuffledWords.forEach(function(v) {
         var escaped = v.word.replace(/'/g, "\\'");
+        html += '<div class="vocab-quiz-word-wrapper">';
         html += '<button class="vocab-quiz-word-btn" onclick="checkVocabQuizAnswer(\'' + escaped + '\', this)">';
         html += v.word.charAt(0).toUpperCase() + v.word.slice(1);
         html += '</button>';
+        html += '<button class="vocab-quiz-word-speak" onclick="event.stopPropagation(); speakText(\'' + escaped + '\', this)" title="Listen to word">🔊</button>';
+        html += '</div>';
     });
     html += '</div>';
     html += '</div>';
 
     modal.querySelector('.modal-body').innerHTML = html;
+
+    // Auto-speak the definition for the current question
+    setTimeout(function() {
+        speakText(current.def);
+    }, 300);
 }
 
 function checkVocabQuizAnswer(selectedWord, btnEl) {
@@ -1269,6 +1278,8 @@ function checkVocabQuizAnswer(selectedWord, btnEl) {
             vocabQuizScore++;
         }
         btnEl.classList.add('vocab-quiz-correct');
+        // Speak the correct word so the student hears the pronunciation
+        speakText(correct);
         if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
         setTimeout(function() {
             vocabQuizIndex++;
@@ -1277,7 +1288,7 @@ function checkVocabQuizAnswer(selectedWord, btnEl) {
             } else {
                 displayVocabQuizQuestion();
             }
-        }, 600);
+        }, 1200);
     } else {
         vocabQuizAttempts[vocabQuizIndex] = (vocabQuizAttempts[vocabQuizIndex] || 0) + 1;
         if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
