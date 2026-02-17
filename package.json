@@ -1,0 +1,10 @@
+{
+  "name": "reading-quest-pro",
+  "version": "1.0.0",
+  "description": "A kids' reading tracker app with leveled stories, comprehension questions, and progress tracking",
+  "main": "app.js",
+  "scripts": {
+    "start": "open index.html"
+  },
+  "private": true
+}

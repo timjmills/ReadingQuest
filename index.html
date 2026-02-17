@@ -1,0 +1,410 @@
+<!DOCTYPE html><html lang="en"><head><meta name="x-poe-datastore-behavior" content="local_only"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reading Quest Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&amp;family=Nunito:wght@400;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Settings Bar -->
+    <div class="settings-bar">
+        <button class="settings-btn" id="darkModeToggle" onclick="toggleDarkMode()">🌙 Dark</button>
+        <button class="settings-btn" onclick="showAchievementsModal()">🏅 Badges</button>
+        <button class="settings-btn" onclick="showVoiceSelector()">🎤 Voice</button>
+        <div class="tts-speed-control">
+            <span class="tts-speed-label">🔊 Speed:</span>
+            <button class="tts-speed-btn" data-speed="0.75" onclick="setTTSSpeed(0.75)">0.75x</button>
+            <button class="tts-speed-btn active" data-speed="1" onclick="setTTSSpeed(1)">1x</button>
+            <button class="tts-speed-btn" data-speed="1.25" onclick="setTTSSpeed(1.25)">1.25x</button>
+        </div>
+    </div>
+    
+    <!-- Achievements Modal -->
+    <div id="achievementsModal" class="achievements-modal" onclick="if(event.target===this)closeAchievementsModal()">
+        <div class="achievements-modal-content">
+            <div class="modal-body"></div>
+        </div>
+    </div>
+    
+    <!-- Vocabulary Pre-Teach Modal -->
+    <div id="vocabModal" class="vocab-modal">
+        <div class="vocab-modal-content">
+            <div class="modal-body"></div>
+        </div>
+    </div>
+    
+    <!-- Toast Container -->
+    <div id="toast" class="toast"></div>
+
+    <div class="confetti-container" id="confettiContainer"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <button class="dark-mode-toggle" id="darkModeToggle" title="Toggle Dark Mode" onclick="toggleDarkMode()"></button>
+            <button class="reading-log-btn" id="readingLogBtn" title="View All-Time Reading Log" onclick="toggleReadingLog()">📚</button>
+            <button class="reading-log-btn" id="activityLogBtn" title="View Session Activity Log" onclick="toggleActivityLog()" style="background: linear-gradient(135deg, #667eea, #764ba2); left: 60px;">📈</button>
+            <div class="logo" id="logoHome" style="cursor: pointer;" title="Go Home" onclick="goHome()">
+                🏆 Reading Quest Pro
+            </div>
+            <div class="stars-display">
+                ⭐ <span id="totalStars">0</span> Stars Earned
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main id="mainContent">
+            <!-- Home Screen -->
+            <section id="homeScreen" class="card" style="position: relative; overflow: hidden;">
+                <!-- Floating decorations -->
+                <div class="home-decorations">
+                    <span class="floating-emoji">⭐</span>
+                    <span class="floating-emoji">🎯</span>
+                    <span class="floating-emoji">✨</span>
+                    <span class="floating-emoji">🏆</span>
+                    <span class="floating-emoji">💫</span>
+                    <span class="floating-emoji">🌟</span>
+                </div>
+
+                <div style="text-align: center; position: relative; z-index: 1;">
+                    <div style="font-size: 4rem; margin-bottom: 10px;">🚀</div>
+                    <h2 style="font-family: 'Fredoka One', cursive; font-size: 2.2rem; margin: 20px 0;">Ready for an Adventure?</h2>
+                    <p style="font-size: 1.2rem; margin-bottom: 25px;">Choose a reading skill to master or try the mixed challenge!</p>
+                </div>
+
+                <!-- Genre Filter -->
+                <div style="position: relative; z-index: 1; text-align: center; margin-bottom: 25px;">
+                    <p style="font-weight: 600; color: #64748b; margin-bottom: 12px; font-size: 1rem;">📚 Text Type:</p>
+                    <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+                        <button class="genre-btn active" data-genre="both" onclick="selectGenre('both')">📖 All Texts</button>
+                        <button class="genre-btn" data-genre="fiction" onclick="selectGenre('fiction')">✨ Fiction</button>
+                        <button class="genre-btn" data-genre="nonfiction" onclick="selectGenre('nonfiction')">🔬 Non-Fiction</button>
+                    </div>
+                </div>
+
+                <!-- Level Slider -->
+                <div class="level-slider-container">
+                    <div class="slider-title">📊 Choose Reading Levels</div>
+                    
+                    <!-- Story Count Display -->
+                    <div class="story-count-display">
+                        <div class="count-number" id="storyCountNumber">289</div>
+                        <div class="count-label">stories available in selected range</div>
+                    </div>
+                    
+                    <!-- Level Labels -->
+                    <div class="level-labels" id="levelLabels">
+                        <!-- Generated by JS -->
+                    </div>
+                    
+                    <!-- Slider Instructions -->
+                    <div style="text-align: center; margin-bottom: 15px; font-size: 0.95rem; color: #6366F1; font-weight: 600;">
+                        👆 Drag the <span style="color: #FF6B9D;">pink circle</span> for MIN level and <span style="color: #4CAF50;">green circle</span> for MAX level
+                    </div>
+                    
+                    <!-- Slider Track -->
+                    <div class="slider-track" id="sliderTrack">
+                        <div class="slider-range" id="sliderRange"></div>
+                        <div class="slider-handle min-handle" id="minHandle" style="left: 0%;">aa</div>
+                        <div class="slider-handle max-handle" id="maxHandle" style="left: 100%;">Z</div>
+                    </div>
+                    
+                    <!-- Level Info -->
+                    <div class="level-info">
+                        <div class="level-info-box">
+                            <div class="info-label">Selected Range</div>
+                            <div class="info-value" id="rangeDisplay">aa - Z</div>
+                        </div>
+                        <div class="level-info-box">
+                            <div class="info-label">Levels Included</div>
+                            <div class="info-value" id="levelCount">15</div>
+                        </div>
+                        <div class="level-info-box">
+                            <div class="info-label">Stories Available</div>
+                            <div class="info-value" id="storyCount">0</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Select Buttons -->
+                    <div class="quick-select-buttons" style="flex-wrap: wrap;">
+                        <button class="quick-btn" onclick="quickSelect('aa', 'B')">🐣 Early (aa-B)</button>
+                        <button class="quick-btn" onclick="quickSelect('C', 'E')">📖 Beginning (C-E)</button>
+                        <button class="quick-btn" onclick="quickSelect('F', 'H')">📚 Developing (F-H)</button>
+                        <button class="quick-btn" onclick="quickSelect('I', 'K')">📘 Transitional (I-K)</button>
+                        <button class="quick-btn" onclick="quickSelect('L', 'N')">📗 Intermediate (L-N)</button>
+                        <button class="quick-btn" onclick="quickSelect('O', 'R')">📕 Upper (O-R)</button>
+                        <button class="quick-btn" onclick="quickSelect('S', 'V')">📙 Advanced (S-V)</button>
+                        <button class="quick-btn" onclick="quickSelect('W', 'Z')">🎓 Challenge (W-Z)</button>
+                        <button class="quick-btn" onclick="quickSelect('aa', 'Z')">✨ All Levels</button>
+                    </div>
+                </div>
+
+                <div class="category-grid" id="categoryGrid" style="position: relative; z-index: 1;">
+                    <!-- Categories will be inserted here -->
+                </div>
+
+                <div class="action-buttons" style="position: relative; z-index: 1;">
+                    <button class="btn-primary" id="startBtn" disabled onclick="startPractice()">🎮 Start Practice</button>
+                </div>
+            </section>
+
+            <!-- Practice Screen -->
+            <section id="practiceScreen" class="hidden">
+                <!-- Progress -->
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">Question 1 of 10</div>
+                </div>
+
+                <!-- Story Display -->
+                <div class="story-container" id="storyContainer">
+                    <div class="story-title" id="storyTitle">📖 <span>Story Title</span></div>
+                    <div class="story-text" id="storyText">Loading story...</div>
+                    <div class="unified-reading-btn-container" id="unifiedBtnContainer">
+                        <button class="unified-reading-btn start-mode" id="unifiedReadingBtn" onclick="toggleReading()">
+                            <span class="btn-icon">▶️</span>
+                            <span class="btn-text">Start Reading</span>
+                        </button>
+                        <div class="inline-timer" id="inlineTimer" style="display: none;">
+                            <span class="timer-display-inline" id="timerTime">00:00</span>
+                        </div>
+                    </div>
+                    <div class="story-controls">
+                        <div class="tts-controls" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="story-btn btn-speak" id="speakBtn" onclick="speakStory()"><span style="font-size: 1.2em;">🔊</span> Listen</button>
+                            <button class="story-btn pause-btn hidden" id="pauseBtn" onclick="pauseResumeAudio()"><span style="font-size: 1.2em;">⏸️</span> Pause</button>
+                            <button class="story-btn btn-stop hidden" id="stopSpeakBtn" onclick="stopSpeaking()"><span style="font-size: 1.2em;">⏹</span> Stop</button>
+                        </div>
+                        <button class="story-btn highlight-read-btn" id="highlightReadBtn" onclick="speakStoryWithHighlight()"><span style="font-size: 1.2em;">📖</span> Follow Along</button>
+                        
+                        <button class="story-btn btn-remix" id="remixStoryBtn">🔀 Remix Story</button>
+                    </div>
+                    <div class="reading-instructions">
+                        <div class="instructions-title-row">
+                            <div class="instructions-title">Reading Practice Instructions</div>
+                            <button class="instructions-speak-btn" id="speakInstructionsBtn" title="Listen to instructions" onclick="speakInstructions()">🔊</button>
+                        </div>
+                        <div class="instructions-text">
+                            1. Press <strong>Listen First</strong> to hear the story<br>
+                            2. Press <strong>Start Reading</strong> and read out loud<br>
+                            3. Press <strong>Finish Reading</strong> when done<br>
+                            4. Complete <strong>3 readings</strong> before answering questions!
+                        </div>
+                    </div>
+                    <div class="reading-progress" id="readingProgress">
+                        <span class="progress-label">Reading Progress:</span>
+                        <div class="reading-attempts">
+                            <div class="attempt-box" id="attempt1"><span class="attempt-num">1</span><span class="attempt-wpm" id="wpm1">--</span></div>
+                            <div class="attempt-box" id="attempt2"><span class="attempt-num">2</span><span class="attempt-wpm" id="wpm2">--</span></div>
+                            <div class="attempt-box" id="attempt3"><span class="attempt-num">3</span><span class="attempt-wpm" id="wpm3">--</span></div>
+                        </div>
+                    </div>
+                    <div class="timer-display" id="timerDisplayOld" style="display: none !important;">
+                        <div class="timer-wpm" id="timerWpm">Read aloud!</div>
+                        <button class="done-reading-btn" id="doneReadingBtn" onclick="doneReading()">✋ Finish</button>
+                    </div>
+                    <div class="wpm-results hidden" id="wpmResults">
+                        <div class="wpm-score" id="wpmScore">0 WPM</div>
+                        <div class="wpm-message" id="wpmMessage">Great job!</div>
+                    </div>
+                    <div class="too-fast-popup" id="tooFastPopup">
+                        <div class="too-fast-popup-content">
+                            <div class="too-fast-icon">⚡</div>
+                            <div class="too-fast-title">Too Fast!</div>
+                            <div class="too-fast-text">Slow down and read more carefully.<br>Take your time and try again!</div>
+                            <button class="too-fast-ok-btn" onclick="closeTooFastPopup()">OK, I'll Try Again!</button>
+                        </div>
+                    </div>
+                    <div class="text-size-controls">
+                        <span>Text Size:</span>
+                        <button class="size-btn" id="decreaseTextBtn">A-</button>
+                        <button class="size-btn" id="increaseTextBtn">A+</button>
+                    </div>
+                </div>
+
+                <!-- Question Area -->
+                <div class="question-card" id="questionCard">
+                    <div class="question-header">
+                        <span class="question-number" id="questionNumber">Question 1</span>
+                        <span class="question-type-badge" id="questionBadge">Theme</span>
+                    </div>
+                    <div class="question-text" id="questionText">
+                        <span id="questionTextContent">Loading question...</span>
+                        <button class="speak-answer-btn" id="speakQuestionBtn" title="Read question aloud" onclick="speakQuestion()">🔊</button>
+                    </div>
+                    <div id="answerArea"><!-- Answer options inserted dynamically --></div>
+                    <button class="hint-btn" id="hintBtn" onclick="showHint()">💡 Need a Hint?</button>
+                    <div class="hint-box" id="hintBox">
+                        <span id="hintText"></span>
+                        <button class="speak-answer-btn" id="speakHintBtn" title="Read hint aloud" onclick="speakHint()">🔊</button>
+                    </div>
+                    <div class="feedback-box" id="feedbackBox">
+                        <span class="feedback-icon" id="feedbackIcon">✅</span>
+                        <span id="feedbackText"></span>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn-secondary" id="skipBtn">⏭️ Skip</button>
+                    <button class="btn-primary" id="checkBtn" disabled onclick="checkAnswer()">✔️ Check Answer</button>
+                    <button class="btn-primary hidden" id="nextBtn" onclick="nextQuestion()">➡️ Next</button>
+                </div>
+            </section>
+
+            <!-- Results Screen -->
+            <section id="resultsScreen" class="hidden card" style="position: relative; overflow: hidden;">
+                <div class="home-decorations">
+                    <span class="floating-emoji">🎉</span>
+                    <span class="floating-emoji">🌟</span>
+                    <span class="floating-emoji">🏆</span>
+                    <span class="floating-emoji">🎊</span>
+                    <span class="floating-emoji">✨</span>
+                    <span class="floating-emoji">💫</span>
+                </div>
+                <div class="results-container">
+                    <h2 style="font-family: 'Fredoka One', cursive; margin-bottom: 15px; font-size: 2rem; background: var(--gradient-cool); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Great Job!</h2>
+                    <div class="results-score" id="resultsScore">0%</div>
+                    <div class="results-stars" id="resultsStars">⭐⭐⭐</div>
+                    <div class="results-message" id="resultsMessage">You're a Reading Rockstar!</div>
+                    <div class="stats-grid">
+                        <div class="stat-card"><div class="stat-value" id="statCorrect">0</div><div class="stat-label">✅ Correct</div></div>
+                        <div class="stat-card"><div class="stat-value" id="statTotal">0</div><div class="stat-label">📝 Questions</div></div>
+                        <div class="stat-card"><div class="stat-value" id="statHints">0</div><div class="stat-label">💡 Hints</div></div>
+                        <div class="stat-card"><div class="stat-value" id="statStars">0</div><div class="stat-label">⭐ Stars</div></div>
+                    </div>
+                    <div class="action-buttons" style="position: relative; z-index: 1;">
+                        <button class="btn-secondary" onclick="toggleActivityLog()">📈 Session Activity Log</button>
+                        <button class="btn-secondary" id="homeBtn" onclick="goHome()">🏠 Home</button>
+                        <button class="btn-primary" id="retryBtn" onclick="startPractice()">🔄 Try Again</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    
+    <!-- Reading Log Modal -->
+    <div class="reading-log-modal" id="readingLogModal">
+        <div class="reading-log-content">
+            <button class="log-close-btn" onclick="toggleReadingLog()">✕</button>
+            <h2 class="log-title">📚 My Reading Log</h2>
+            
+            <div class="log-tabs">
+                <button class="log-tab active" onclick="switchLogTab('today')">Today</button>
+                <button class="log-tab" onclick="switchLogTab('week')">This Week</button>
+                <button class="log-tab" onclick="switchLogTab('month')">This Month</button>
+                <button class="log-tab" onclick="switchLogTab('all')">All Time</button>
+            </div>
+            
+            <div class="log-stats-grid" id="logStatsGrid">
+                <!-- Stats populated by JS -->
+            </div>
+            
+            <div class="log-history" id="logHistory">
+                <!-- History populated by JS -->
+            </div>
+            
+            <button class="log-clear-btn" onclick="clearReadingLog()">🗑️ Clear All Data</button>
+        </div>
+    </div>
+
+    
+    <!-- Detailed Activity Log Modal -->
+    <div class="activity-log-modal" id="activityLogModal">
+        <div class="activity-log-content">
+            <div class="activity-log-header">
+                <h2>📊 Session Activity Log</h2>
+                <button class="activity-log-close" onclick="toggleActivityLog()">✕</button>
+            </div>
+            <div class="activity-log-body" id="activityLogBody">
+                <!-- Content populated by JavaScript -->
+                <div class="engagement-section" id="engagementSection">
+                    <div style="font-size: 0.9rem; color: #64748b;">ENGAGEMENT SCORE</div>
+                    <div class="engagement-score-display" id="engagementScoreDisplay">--</div>
+                    <div class="engagement-stars" id="engagementStars">☆☆☆☆☆</div>
+                    <div class="engagement-tier" id="engagementTier">Not Started</div>
+                    
+                    <div class="engagement-breakdown" id="engagementBreakdown">
+                        <div class="engagement-factor">
+                            <div class="factor-name">Reading Quality</div>
+                            <div class="factor-score" id="readingQualityScore">--</div>
+                            <div class="factor-bar"><div class="factor-bar-fill" id="readingQualityBar" style="width: 0%; background: #3b82f6;"></div></div>
+                        </div>
+                        <div class="engagement-factor">
+                            <div class="factor-name">Answer Quality</div>
+                            <div class="factor-score" id="answerQualityScore">--</div>
+                            <div class="factor-bar"><div class="factor-bar-fill" id="answerQualityBar" style="width: 0%; background: #22c55e;"></div></div>
+                        </div>
+                        <div class="engagement-factor">
+                            <div class="factor-name">Consistency</div>
+                            <div class="factor-score" id="consistencyScore">--</div>
+                            <div class="factor-bar"><div class="factor-bar-fill" id="consistencyBar" style="width: 0%; background: #f59e0b;"></div></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="summary-stats-grid" id="summaryStatsGrid">
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">📚</div>
+                        <div class="summary-stat-value" id="totalStoriesStat">0</div>
+                        <div class="summary-stat-label">Stories Read</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">🔄</div>
+                        <div class="summary-stat-value" id="totalReadingsStat">0</div>
+                        <div class="summary-stat-label">Total Readings</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">⏱️</div>
+                        <div class="summary-stat-value" id="totalReadingTimeStat">0:00</div>
+                        <div class="summary-stat-label">Reading Time</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">❓</div>
+                        <div class="summary-stat-value" id="totalQuestionsStat">0</div>
+                        <div class="summary-stat-label">Questions</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">✅</div>
+                        <div class="summary-stat-value" id="totalCorrectStat">0</div>
+                        <div class="summary-stat-label">Correct</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">⏱️</div>
+                        <div class="summary-stat-value" id="totalQuestionTimeStat">0:00</div>
+                        <div class="summary-stat-label">Question Time</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">📈</div>
+                        <div class="summary-stat-value" id="accuracyRateStat">0%</div>
+                        <div class="summary-stat-label">Accuracy</div>
+                    </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">🕐</div>
+                        <div class="summary-stat-value" id="totalSessionTimeStat">0:00</div>
+                        <div class="summary-stat-label">Total Time</div>
+                    </div>
+                </div>
+                
+                <h3 style="margin: 20px 0 16px; color: #1e293b;">📖 Story Details</h3>
+                <div id="storyDetailsContainer">
+                    <!-- Story sections populated dynamically -->
+                </div>
+                
+                <h3 style="margin: 20px 0 16px; color: #1e293b;">📊 Category Performance</h3>
+                <div class="category-breakdown" id="categoryBreakdown">
+                    <!-- Category stats populated dynamically -->
+                </div>
+                
+                <button class="export-log-btn" onclick="exportActivityLog()">
+                    📥 Export Log
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
