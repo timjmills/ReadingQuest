@@ -2023,6 +2023,9 @@ function showHint() {
 }
 
 function goHome() {
+    // Stop focus monitoring
+    if (typeof FocusMonitor !== 'undefined') FocusMonitor.stop();
+
     // Stop any playing audio
     stopSpeaking();
     
@@ -2339,6 +2342,9 @@ function startPractice() {
     currentQuestions = storyQuestions.slice(0, 6);
     currentStoryQuestions = currentQuestions.slice(); // Keep a copy
     
+    // Start focus monitoring
+    if (typeof FocusMonitor !== 'undefined') FocusMonitor.start();
+
     // Show vocabulary pre-teach before starting
     showVocabularyPreTeach(selectedStory, function() {
         document.getElementById('homeScreen').classList.add('hidden');
@@ -2606,6 +2612,9 @@ function displayQuestion() {
 }
 
 function showResults() {
+    // Stop focus monitoring
+    if (typeof FocusMonitor !== 'undefined') FocusMonitor.stop();
+
     // Finish logging this story
     finishStoryLog();
     

@@ -1,0 +1,290 @@
+/* ========================================
+   FOCUS MONITOR STYLES
+   ======================================== */
+
+/* --- Tab Switch Overlay --- */
+.focus-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.focus-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.focus-overlay-icon {
+    font-size: 5rem;
+    margin-bottom: 20px;
+    animation: focusPulse 1.5s ease-in-out infinite;
+}
+
+.focus-overlay-text {
+    font-family: 'Fredoka One', cursive;
+    font-size: 2.2rem;
+    color: #fff;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.focus-overlay-sub {
+    font-family: 'Nunito', sans-serif;
+    font-size: 1.1rem;
+    color: rgba(255, 255, 255, 0.7);
+    text-align: center;
+}
+
+@keyframes focusPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+}
+
+/* --- Inactivity Modal --- */
+.idle-modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100001;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.idle-modal-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.idle-modal {
+    background: #fff;
+    border-radius: 20px;
+    padding: 40px 50px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 420px;
+    width: 90%;
+    transform: scale(0.8);
+    transition: transform 0.3s ease;
+}
+
+.idle-modal-backdrop.visible .idle-modal {
+    transform: scale(1);
+}
+
+.idle-modal-icon {
+    font-size: 4rem;
+    margin-bottom: 15px;
+}
+
+.idle-modal-title {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.6rem;
+    color: #1e293b;
+    margin-bottom: 10px;
+}
+
+.idle-modal-text {
+    font-family: 'Nunito', sans-serif;
+    font-size: 1.05rem;
+    color: #64748b;
+    margin-bottom: 25px;
+}
+
+.idle-modal-btn {
+    font-family: 'Nunito', sans-serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    padding: 14px 36px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+}
+
+.idle-modal-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.5);
+}
+
+.idle-modal-btn:active {
+    transform: translateY(0);
+}
+
+/* --- Floating On-Task Timer Widget --- */
+.focus-timer-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: #fff;
+    border-radius: 16px;
+    padding: 12px 20px;
+    min-width: 180px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+    z-index: 99999;
+    font-family: 'Nunito', sans-serif;
+    transition: background 0.4s ease, opacity 0.3s ease, transform 0.3s ease;
+    opacity: 0;
+    transform: translateY(20px);
+    pointer-events: none;
+}
+
+.focus-timer-widget.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.focus-timer-widget.paused {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.focus-timer-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.9;
+    margin-bottom: 2px;
+}
+
+.focus-timer-time {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.8rem;
+    line-height: 1.1;
+}
+
+.focus-timer-score {
+    font-size: 0.85rem;
+    font-weight: 700;
+    opacity: 0.9;
+    margin-top: 2px;
+}
+
+/* --- Fullscreen Prompt --- */
+.fullscreen-prompt {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 14px 24px;
+    z-index: 99998;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+    transform: translateY(100%);
+    transition: transform 0.4s ease;
+    flex-wrap: wrap;
+}
+
+.fullscreen-prompt.visible {
+    transform: translateY(0);
+}
+
+.fullscreen-prompt-text {
+    font-family: 'Nunito', sans-serif;
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.fullscreen-prompt-btn {
+    font-family: 'Nunito', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 8px 22px;
+    border: 2px solid #fff;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    white-space: nowrap;
+}
+
+.fullscreen-prompt-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.fullscreen-prompt-dismiss {
+    font-family: 'Nunito', sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    transition: background 0.2s ease;
+    white-space: nowrap;
+}
+
+.fullscreen-prompt-dismiss:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* --- Dark Mode Overrides --- */
+body.dark-mode .idle-modal {
+    background: #1e293b;
+}
+
+body.dark-mode .idle-modal-title {
+    color: #f1f5f9;
+}
+
+body.dark-mode .idle-modal-text {
+    color: #94a3b8;
+}
+
+/* --- Responsive --- */
+@media (max-width: 600px) {
+    .focus-timer-widget {
+        bottom: 12px;
+        right: 12px;
+        min-width: 140px;
+        padding: 10px 14px;
+    }
+
+    .focus-timer-time {
+        font-size: 1.4rem;
+    }
+
+    .focus-overlay-text {
+        font-size: 1.6rem;
+        padding: 0 20px;
+    }
+
+    .idle-modal {
+        padding: 30px 24px;
+    }
+
+    .fullscreen-prompt {
+        padding: 12px 16px;
+        gap: 10px;
+    }
+}
