@@ -1187,7 +1187,6 @@ function showVocabularyPreTeach(story, callback) {
     
     html += '</div>';
     html += '<button class="vocab-continue-btn" onclick="startVocabQuiz()">I\'m Ready! Quiz Me! →</button>';
-    html += '<button class="vocab-skip-btn" onclick="closeVocabModal()">Skip for now</button>';
     html += '</div>';
     
     modal.querySelector('.modal-body').innerHTML = html;
