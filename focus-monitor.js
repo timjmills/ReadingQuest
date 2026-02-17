@@ -32,6 +32,8 @@ var FocusMonitor = (function() {
     var fullscreenPrompt = null;
     var wasTimerRunning = false;
     var wasTimerRunningIdle = false;
+    var wasSpeechActive = false;
+    var wasSpeechActiveIdle = false;
 
     // ========================================
     // DOM CREATION
@@ -161,6 +163,9 @@ var FocusMonitor = (function() {
         }
     }
 
+    // Note: Speech pause/resume on tab-away is handled inside pauseAppTimer()
+    // and resumeAppTimer() which are called by onVisibilityChange above.
+
     // ========================================
     // INACTIVITY DETECTION
     // ========================================
@@ -235,6 +240,15 @@ var FocusMonitor = (function() {
             }
             timerRunning = false;
         }
+        // Pause TTS if it is currently speaking
+        wasSpeechActive = false;
+        if (window.speechSynthesis && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+            window.speechSynthesis.pause();
+            wasSpeechActive = true;
+            if (typeof pauseTimerHighlighting === 'function') {
+                pauseTimerHighlighting();
+            }
+        }
     }
 
     function resumeAppTimer() {
@@ -247,6 +261,16 @@ var FocusMonitor = (function() {
                 }
             }, 1000);
         }
+        // Resume TTS if we paused it
+        if (wasSpeechActive) {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.resume();
+            }
+            if (typeof resumeTimerHighlighting === 'function') {
+                resumeTimerHighlighting();
+            }
+            wasSpeechActive = false;
+        }
     }
 
     function pauseAppTimerIdle() {
@@ -257,6 +281,15 @@ var FocusMonitor = (function() {
                 timerInterval = null;
             }
             timerRunning = false;
+        }
+        // Pause TTS if it is currently speaking
+        wasSpeechActiveIdle = false;
+        if (window.speechSynthesis && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+            window.speechSynthesis.pause();
+            wasSpeechActiveIdle = true;
+            if (typeof pauseTimerHighlighting === 'function') {
+                pauseTimerHighlighting();
+            }
         }
     }
 
@@ -269,6 +302,16 @@ var FocusMonitor = (function() {
                     if (typeof updateTimerDisplay === 'function') updateTimerDisplay();
                 }
             }, 1000);
+        }
+        // Resume TTS if we paused it
+        if (wasSpeechActiveIdle) {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.resume();
+            }
+            if (typeof resumeTimerHighlighting === 'function') {
+                resumeTimerHighlighting();
+            }
+            wasSpeechActiveIdle = false;
         }
     }
 
@@ -330,6 +373,8 @@ var FocusMonitor = (function() {
         isIdle = false;
         wasTimerRunning = false;
         wasTimerRunningIdle = false;
+        wasSpeechActive = false;
+        wasSpeechActiveIdle = false;
         eventLog = [];
 
         // Build DOM elements if not yet created
@@ -405,9 +450,20 @@ var FocusMonitor = (function() {
         };
     }
 
+    function setIdleThreshold(seconds) {
+        IDLE_THRESHOLD = seconds;
+        resetIdleTimer();
+    }
+
+    function resetIdle() {
+        resetIdleTimer();
+    }
+
     return {
         start: start,
         stop: stop,
-        getStats: getStats
+        getStats: getStats,
+        setIdleThreshold: setIdleThreshold,
+        resetIdle: resetIdle
     };
 })();

@@ -2058,6 +2058,7 @@ function pickAnswer(idx) {
         alert('Please complete 3 reading attempts first!');
         return;
     }
+    if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
     selectedAnswerIndex = idx;
     var btns = document.querySelectorAll('.answer-option');
     for (var i = 0; i < btns.length; i++) {
@@ -2075,7 +2076,8 @@ function checkAnswer() {
         return;
     }
     hasAnswered = true;
-    
+    if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
+
     var q = currentQuestions[questionIndex];
     if (!q) {
         console.error('Question not found in checkAnswer');
@@ -2144,6 +2146,7 @@ function checkAnswer() {
 }
 
 function nextQuestion() {
+    if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
     questionIndex++;
     if (questionIndex >= currentQuestions.length) {
         showResults();
@@ -2397,7 +2400,16 @@ function displayQuestion() {
     if (story) {
         currentWordCount = story.wordCount || story.text.split(/\s+/).length;
     }
-    
+
+    // Set context-aware idle threshold based on current phase
+    if (typeof FocusMonitor !== 'undefined' && FocusMonitor.setIdleThreshold) {
+        if (questionsUnlocked) {
+            FocusMonitor.setIdleThreshold(30);
+        } else {
+            FocusMonitor.setIdleThreshold(currentWordCount <= 100 ? 60 : 90);
+        }
+    }
+
     // Reading attempts are now managed per story in startPractice
     // No need to reset here since all questions are from the same story
     
@@ -4068,7 +4080,12 @@ function updateReadingLogDisplay() {
 
 function unlockQuestions() {
     questionsUnlocked = true;
-    
+
+    // Switch to shorter idle threshold for question-answering phase
+    if (typeof FocusMonitor !== 'undefined' && FocusMonitor.setIdleThreshold) {
+        FocusMonitor.setIdleThreshold(30);
+    }
+
     var questionCard = document.getElementById('questionCard');
     var lockedOverlay = document.getElementById('lockedOverlay');
     
