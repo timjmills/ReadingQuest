@@ -1146,7 +1146,8 @@ function getStoryVocabulary(storyText, storyLevel, storyId) {
 
 function showVocabularyPreTeach(story, callback) {
     var vocab = getStoryVocabulary(story.text, story.level, story.id);
-    
+    window._vocabQuizData = vocab;
+
     if (vocab.length === 0) {
         callback();
         return;
@@ -1185,7 +1186,7 @@ function showVocabularyPreTeach(story, callback) {
     });
     
     html += '</div>';
-    html += '<button class="vocab-continue-btn" onclick="closeVocabModal()">I\'m Ready to Read! →</button>';
+    html += '<button class="vocab-continue-btn" onclick="startVocabQuiz()">I\'m Ready! Quiz Me! →</button>';
     html += '<button class="vocab-skip-btn" onclick="closeVocabModal()">Skip for now</button>';
     html += '</div>';
     
@@ -1198,6 +1199,120 @@ function showVocabularyPreTeach(story, callback) {
 
 function speakVocabWord(word, definition) {
     speakText(word + '. ' + definition);
+}
+
+var vocabQuizWords = [];
+var vocabQuizIndex = 0;
+var vocabQuizScore = 0;
+var vocabQuizAttempts = {};
+
+function startVocabQuiz() {
+    vocabQuizWords = (window._vocabQuizData || []).slice();
+    // Shuffle quiz order
+    for (var i = vocabQuizWords.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = vocabQuizWords[i];
+        vocabQuizWords[i] = vocabQuizWords[j];
+        vocabQuizWords[j] = tmp;
+    }
+    vocabQuizIndex = 0;
+    vocabQuizScore = 0;
+    vocabQuizAttempts = {};
+    // Set 30s idle threshold for vocab quiz
+    if (typeof FocusMonitor !== 'undefined' && FocusMonitor.setIdleThreshold) {
+        FocusMonitor.setIdleThreshold(30);
+    }
+    displayVocabQuizQuestion();
+}
+
+function displayVocabQuizQuestion() {
+    var modal = document.getElementById('vocabModal');
+    if (!modal) return;
+
+    var current = vocabQuizWords[vocabQuizIndex];
+    var total = vocabQuizWords.length;
+
+    // Shuffle button order differently from definition order
+    var shuffledWords = vocabQuizWords.slice();
+    for (var i = shuffledWords.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = shuffledWords[i];
+        shuffledWords[i] = shuffledWords[j];
+        shuffledWords[j] = tmp;
+    }
+
+    var html = '<div class="vocab-quiz">';
+    html += '<div class="vocab-quiz-progress">Word ' + (vocabQuizIndex + 1) + ' of ' + total + '</div>';
+    html += '<div class="vocab-quiz-score-bar">Score: ' + vocabQuizScore + '/' + (vocabQuizIndex) + '</div>';
+    html += '<div class="vocab-quiz-prompt">Which word matches this definition?</div>';
+    html += '<div class="vocab-quiz-def-card">';
+    html += '<div class="quiz-def-label">Definition</div>';
+    html += '<div class="quiz-def-text">' + current.def + '</div>';
+    if (current.pos) html += '<span class="vocab-quiz-pos">' + current.pos + '</span>';
+    html += '</div>';
+    html += '<div class="vocab-quiz-words">';
+    shuffledWords.forEach(function(v) {
+        var escaped = v.word.replace(/'/g, "\\'");
+        html += '<button class="vocab-quiz-word-btn" onclick="checkVocabQuizAnswer(\'' + escaped + '\', this)">';
+        html += v.word.charAt(0).toUpperCase() + v.word.slice(1);
+        html += '</button>';
+    });
+    html += '</div>';
+    html += '</div>';
+
+    modal.querySelector('.modal-body').innerHTML = html;
+}
+
+function checkVocabQuizAnswer(selectedWord, btnEl) {
+    var correct = vocabQuizWords[vocabQuizIndex].word;
+    if (selectedWord === correct) {
+        if (!vocabQuizAttempts[vocabQuizIndex]) {
+            vocabQuizScore++;
+        }
+        btnEl.classList.add('vocab-quiz-correct');
+        if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
+        setTimeout(function() {
+            vocabQuizIndex++;
+            if (vocabQuizIndex >= vocabQuizWords.length) {
+                showVocabQuizResults();
+            } else {
+                displayVocabQuizQuestion();
+            }
+        }, 600);
+    } else {
+        vocabQuizAttempts[vocabQuizIndex] = (vocabQuizAttempts[vocabQuizIndex] || 0) + 1;
+        if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
+        btnEl.classList.add('vocab-quiz-wrong');
+        setTimeout(function() {
+            btnEl.classList.remove('vocab-quiz-wrong');
+        }, 500);
+    }
+}
+
+function showVocabQuizResults() {
+    var modal = document.getElementById('vocabModal');
+    if (!modal) return;
+
+    var total = vocabQuizWords.length;
+    var pct = total > 0 ? vocabQuizScore / total : 0;
+    var message = pct === 1 ? 'Perfect! Amazing job!' : pct >= 0.8 ? 'Great job!' : pct >= 0.5 ? 'Nice try!' : 'Keep practicing!';
+
+    var stars = '';
+    var starCount = Math.round(pct * 5);
+    for (var i = 0; i < 5; i++) {
+        stars += i < starCount ? '⭐' : '☆';
+    }
+
+    var icon = pct === 1 ? '🎉' : pct >= 0.8 ? '👏' : pct >= 0.5 ? '👍' : '💪';
+    var html = '<div class="vocab-quiz-results">';
+    html += '<div class="quiz-result-icon">' + icon + '</div>';
+    html += '<div class="quiz-result-title">' + message + '</div>';
+    html += '<div class="quiz-result-stars">' + stars + '</div>';
+    html += '<div class="quiz-result-score">You got ' + vocabQuizScore + '/' + total + ' correct on your first try!</div>';
+    html += '<button class="vocab-continue-btn" onclick="closeVocabModal()">Start Reading! →</button>';
+    html += '</div>';
+
+    modal.querySelector('.modal-body').innerHTML = html;
 }
 
 function closeVocabModal() {
