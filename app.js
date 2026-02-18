@@ -3847,6 +3847,485 @@ function exportActivityLog() {
     URL.revokeObjectURL(url);
 }
 
+// ========================================
+// FEATURE: PRINTABLE WORKSHEET GENERATOR
+// ========================================
+
+function worksheetEscape(text) {
+    var el = document.createElement('div');
+    el.appendChild(document.createTextNode(text));
+    return el.innerHTML;
+}
+
+function getWorksheetTier(level) {
+    var early = ['aa', 'A', 'B', 'C', 'D', 'E'];
+    var developing = ['F', 'G', 'H', 'I', 'J', 'K'];
+    if (early.indexOf(level) !== -1) return 'early';
+    if (developing.indexOf(level) !== -1) return 'developing';
+    return 'advanced';
+}
+
+function worksheetExtractCharacters(text) {
+    var skip = ['the','a','an','i','it','he','she','they','we','my','her','his','its','our','their','you','your','this','that','these','those','one','every','some','many','all','no','but','and','or','so','if','when','then','now','after','before','even','still','also','just','each','both','most','other','such','very','too','only','once','than','how','what','where','which','who','why','as','at','by','in','on','to','of','up','out','for','from','with','into','about','over','down','back','off','little','big','new','old','good','first','last','next','long','much','more','said','asked','told','went','came','got','made','took','saw','knew','thought','looked','called','day','time','way','home','school','morning','people'];
+    var sentences = text.split(/[.!?]+/);
+    var counts = {};
+    sentences.forEach(function(s) {
+        var words = s.trim().split(/\s+/);
+        for (var i = 0; i < words.length; i++) {
+            var w = words[i].replace(/[^a-zA-Z']/g, '');
+            if (w.length < 2 || w[0] !== w[0].toUpperCase() || w === w.toUpperCase()) continue;
+            if (skip.indexOf(w.toLowerCase()) !== -1) continue;
+            counts[w] = (counts[w] || 0) + (i === 0 ? 0.5 : 1);
+        }
+    });
+    var names = [];
+    for (var n in counts) { if (counts[n] >= 1.5) names.push(n); }
+    return names;
+}
+
+function worksheetSelectQuestions(storyId, maxCount) {
+    var storyQs = questions.filter(function(q) { return q.storyId === storyId; });
+    var byCategory = {};
+    storyQs.forEach(function(q) {
+        if (!byCategory[q.category]) byCategory[q.category] = [];
+        byCategory[q.category].push(q);
+    });
+    var cats = Object.keys(byCategory);
+    var selected = [];
+    var round = 0;
+    while (selected.length < maxCount && selected.length < storyQs.length) {
+        var cat = cats[round % cats.length];
+        if (byCategory[cat] && byCategory[cat].length > 0) {
+            var idx = Math.floor(Math.random() * byCategory[cat].length);
+            selected.push(byCategory[cat].splice(idx, 1)[0]);
+        }
+        round++;
+        var anyLeft = cats.some(function(c) { return byCategory[c] && byCategory[c].length > 0; });
+        if (!anyLeft) break;
+    }
+    return selected;
+}
+
+function worksheetOpenEnded(story, tier) {
+    var chars = worksheetExtractCharacters(story.text);
+    var charStr = chars.length > 0 ? chars.slice(0, 2).join(' and ') : 'the main character';
+    var fiction = story.genre === 'fiction';
+    var qs = [];
+    if (tier === 'early') {
+        qs.push({ label: 'Main Idea', text: 'What is this story mostly about? Draw or write your answer.' });
+        qs.push({ label: 'Connection', text: fiction ? 'How does this story make you feel? Why?' : 'What is one new thing you learned from reading this?' });
+    } else if (tier === 'developing') {
+        qs.push({ label: 'Main Idea (Think and Search)', text: 'What is the main idea of this story? Use at least one detail from the text to support your answer.' });
+        qs.push({ label: fiction ? 'Character Analysis (Author and Me)' : "Author's Purpose (Author and Me)", text: fiction ? 'How does ' + charStr + ' change from the beginning to the end of the story? What causes this change?' : 'Why do you think the author wrote this passage? What did they want you to learn?' });
+        qs.push({ label: 'Personal Connection (On My Own)', text: 'Have you ever experienced something similar to what happened in this story? Explain your connection.' });
+    } else {
+        qs.push({ label: 'Central Idea with Evidence (Think and Search)', text: 'Identify the central idea of this passage. Cite two pieces of text evidence that support your answer.' });
+        qs.push({ label: fiction ? 'Character Analysis (Author and Me)' : "Author's Purpose (Author and Me)", text: fiction ? 'Analyze how ' + charStr + ' responds to the central conflict. What do their actions reveal about their character?' : "What is the author's purpose in writing this passage? How does the author use specific details to achieve this purpose?" });
+        qs.push({ label: 'Text-to-World Connection (On My Own)', text: 'How does this story connect to something in your own life or in the world around you? Explain your thinking.' });
+        qs.push({ label: 'Evaluate (Critical Thinking)', text: fiction ? 'Do you agree with the choices ' + charStr + ' made? Why or why not? Use evidence from the text.' : 'Do you think the information in this passage is important? Why or why not? Support your answer with details.' });
+    }
+    return qs;
+}
+
+function worksheetGrammar(story, tier) {
+    var allSentences = story.text.split(/(?<=[.!?])\s+/).filter(function(s) { return s.trim().length > 15; });
+    var sorted = allSentences.slice().sort(function(a, b) {
+        return Math.abs(a.split(' ').length - 8) - Math.abs(b.split(' ').length - 8);
+    });
+    var sentences = sorted.slice(0, 3);
+    var result = { sentences: sentences };
+    if (tier === 'early') {
+        result.instruction = 'Read this sentence from the story. Circle the nouns (naming words) and underline the verbs (action words).';
+        result.tasks = [
+            { text: 'Write 3 nouns (people, places, or things) from the story:', lines: 1 },
+            { text: 'Write 3 verbs (action words) from the story:', lines: 1 }
+        ];
+    } else if (tier === 'developing') {
+        result.instruction = 'Read these sentences from the story. Identify the parts of speech as directed.';
+        result.tasks = [
+            { text: 'Write 5 nouns from the story:', lines: 1 },
+            { text: 'Write 4 verbs from the story:', lines: 1 }
+        ];
+        if (sentences.length > 0) {
+            var words = sentences[0].split(/\s+/).map(function(w) { return w.replace(/[^a-zA-Z']/g, ''); }).filter(function(w) { return w.length > 2; });
+            result.posWords = words.slice(0, Math.min(4, words.length));
+            result.posSentence = sentences[0];
+        }
+    } else {
+        result.instruction = 'Read these sentences from the story carefully. Complete the grammar activities below.';
+        result.tasks = [
+            { text: 'For each sentence above, identify the Subject and Verb.', lines: 3 },
+            { text: 'Find 2 adjectives from the passage. Write each adjective and what it describes.', lines: 2 },
+            { text: 'Find 1 adverb from the passage. Write the adverb and explain what it tells us.', lines: 2 }
+        ];
+        if (sentences.length > 0) {
+            var words = sentences[0].split(/\s+/).map(function(w) { return w.replace(/[^a-zA-Z']/g, ''); }).filter(function(w) { return w.length > 1; });
+            result.labelWords = words.slice(0, 6);
+            result.labelSentence = sentences[0];
+        }
+    }
+    return result;
+}
+
+function worksheetFindContext(storyText, word) {
+    var sentences = storyText.split(/(?<=[.!?])\s+/);
+    for (var i = 0; i < sentences.length; i++) {
+        if (sentences[i].toLowerCase().indexOf(word.toLowerCase()) !== -1) return sentences[i];
+    }
+    return null;
+}
+
+function getWorksheetCSS() {
+    return '* { margin: 0; padding: 0; box-sizing: border-box; }' +
+        'body { font-family: Georgia, "Times New Roman", serif; font-size: 12pt; line-height: 1.5; color: #000; padding: 0.5in 0.65in; }' +
+        '.ws-header { text-align: center; border-bottom: 3px solid #000; padding-bottom: 8px; margin-bottom: 12px; }' +
+        '.ws-title { font-size: 18pt; font-weight: bold; }' +
+        '.ws-subtitle { font-size: 10pt; color: #555; margin-top: 2px; }' +
+        '.name-date { display: flex; justify-content: space-between; margin: 10px 0; font-size: 11pt; }' +
+        '.name-date .field { display: flex; align-items: baseline; gap: 5px; }' +
+        '.name-date .blank { border-bottom: 1px solid #000; min-width: 180px; display: inline-block; height: 18px; }' +
+        '.story-info { display: flex; gap: 20px; font-size: 10pt; padding: 5px 10px; border: 1px solid #999; margin-bottom: 10px; }' +
+        '.story-info b { font-weight: bold; }' +
+        '.story-text-box { border: 1px solid #bbb; padding: 12px 15px; line-height: 2.0; font-size: 12pt; margin-bottom: 15px; }' +
+        '.section-title { font-size: 13pt; font-weight: bold; border-bottom: 2px solid #333; padding-bottom: 3px; margin: 18px 0 10px 0; }' +
+        '.section-num { display: inline-block; background: #000; color: #fff; width: 22px; height: 22px; text-align: center; line-height: 22px; font-size: 11pt; margin-right: 6px; border-radius: 3px; }' +
+        '.vocab-match-container { display: flex; justify-content: space-between; margin: 8px 0; }' +
+        '.vocab-col { width: 42%; }' +
+        '.vocab-col-spacer { width: 10%; text-align: center; color: #ccc; padding-top: 10px; font-size: 18pt; }' +
+        '.vocab-item { margin: 6px 0; font-size: 11pt; }' +
+        '.vocab-word { font-weight: bold; }' +
+        '.use-it-box { margin: 5px 0 10px 0; }' +
+        '.answer-line { border-bottom: 1px solid #aaa; height: 28px; margin: 4px 0; }' +
+        '.answer-line-wide { border-bottom: 1px solid #aaa; height: 35px; margin: 5px 0; }' +
+        '.mc-question { margin-bottom: 14px; }' +
+        '.mc-q-text { font-size: 11pt; margin-bottom: 4px; }' +
+        '.mc-options { margin-left: 15px; }' +
+        '.mc-option { margin: 3px 0; font-size: 11pt; display: flex; align-items: center; gap: 6px; }' +
+        '.bubble { display: inline-block; width: 14px; height: 14px; border: 1.5px solid #000; border-radius: 50%; flex-shrink: 0; }' +
+        '.tf-options { display: flex; gap: 30px; margin-left: 15px; margin-top: 4px; }' +
+        '.tf-option { display: flex; align-items: center; gap: 6px; font-size: 11pt; }' +
+        '.oe-question { margin-bottom: 12px; }' +
+        '.oe-label { font-weight: bold; font-size: 10pt; color: #333; margin-bottom: 2px; }' +
+        '.oe-text { font-size: 11pt; margin-bottom: 5px; }' +
+        '.grammar-sentence { font-style: italic; padding: 6px 10px; border-left: 3px solid #666; margin: 6px 0; font-size: 11pt; }' +
+        '.grammar-task { margin: 8px 0; font-size: 11pt; }' +
+        '.pos-table { width: 100%; border-collapse: collapse; margin: 8px 0; }' +
+        '.pos-table td, .pos-table th { border: 1px solid #999; padding: 5px 8px; font-size: 10pt; text-align: center; }' +
+        '.pos-table th { background: #eee; font-weight: bold; }' +
+        '.context-clue-box { border: 1px solid #999; padding: 10px; margin: 8px 0; }' +
+        '.context-word { font-weight: bold; text-decoration: underline; }' +
+        '.read-aloud-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 8px 0; }' +
+        '.read-aloud-card { border: 1.5px solid #000; padding: 8px; font-size: 10pt; }' +
+        '.ra-title { font-weight: bold; text-align: center; margin-bottom: 6px; font-size: 11pt; }' +
+        '.ra-field { margin: 5px 0; display: flex; justify-content: space-between; }' +
+        '.ra-blank { border-bottom: 1px solid #000; min-width: 60px; }' +
+        '.star-rating { font-size: 14pt; text-align: center; letter-spacing: 3px; margin-top: 5px; }' +
+        '.wpm-helper { font-size: 9pt; color: #555; text-align: center; margin-top: 8px; padding: 5px; border: 1px dashed #aaa; }' +
+        '.drawing-box { border: 2px solid #000; height: 160px; margin: 8px 0; display: flex; align-items: center; justify-content: center; color: #ddd; font-size: 14pt; }' +
+        '.reflection-prompt { font-size: 11pt; margin-bottom: 4px; }' +
+        '.page-break { page-break-before: always; break-before: page; }' +
+        '.footer { text-align: center; font-size: 8pt; color: #999; margin-top: 15px; padding-top: 5px; border-top: 1px solid #ddd; }' +
+        '@media print { body { padding: 0.4in 0.6in; } .story-info { background: none !important; } .section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .pos-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }';
+}
+
+function worksheetBuildPage1(story, vocab, tier) {
+    var h = '';
+    // Header
+    h += '<div class="ws-header">';
+    h += '<div class="ws-title">Reading Quest Pro \u2014 Reading Worksheet</div>';
+    h += '<div class="ws-subtitle">' + worksheetEscape(story.title) + '</div>';
+    h += '</div>';
+    h += '<div class="name-date">';
+    h += '<div class="field">Name: <span class="blank"></span></div>';
+    h += '<div class="field">Date: <span class="blank" style="min-width:120px"></span></div>';
+    h += '</div>';
+    // Story info
+    h += '<div class="story-info">';
+    h += '<div>Level: <b>' + worksheetEscape(story.level) + '</b></div>';
+    h += '<div>Genre: <b>' + (story.genre === 'fiction' ? 'Fiction' : 'Non-Fiction') + '</b></div>';
+    h += '<div>Words: <b>' + story.wordCount + '</b></div>';
+    h += '</div>';
+    // Story text
+    h += '<div class="story-text-box">' + worksheetEscape(story.text) + '</div>';
+    // Section 1: Vocabulary Match
+    if (vocab.length > 0) {
+        h += '<div class="section-title"><span class="section-num">1</span> Vocabulary Match</div>';
+        h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Draw a line from each word to its correct definition.</div>';
+        var defs = vocab.map(function(v) { return v.def; });
+        for (var i = defs.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = defs[i]; defs[i] = defs[j]; defs[j] = tmp;
+        }
+        var letters = 'abcdefghij';
+        h += '<div class="vocab-match-container">';
+        h += '<div class="vocab-col">';
+        for (var i = 0; i < vocab.length; i++) {
+            h += '<div class="vocab-item">' + (i + 1) + '. <span class="vocab-word">' + worksheetEscape(vocab[i].word) + '</span> <span style="font-size:9pt;color:#666;">(' + worksheetEscape(vocab[i].pos) + ')</span></div>';
+        }
+        h += '</div>';
+        h += '<div class="vocab-col-spacer">\u2194</div>';
+        h += '<div class="vocab-col">';
+        for (var i = 0; i < defs.length; i++) {
+            h += '<div class="vocab-item">' + letters[i] + '. ' + worksheetEscape(defs[i]) + '</div>';
+        }
+        h += '</div></div>';
+        // Section 2: Use It!
+        h += '<div class="section-title"><span class="section-num">2</span> Use It!</div>';
+        h += '<div style="font-size:10pt;margin-bottom:6px;">Choose 2 vocabulary words from above. Write a sentence using each word.</div>';
+        for (var i = 0; i < Math.min(2, vocab.length); i++) {
+            h += '<div class="use-it-box">';
+            h += '<div style="font-size:11pt;"><strong>' + worksheetEscape(vocab[i].word) + '</strong>:</div>';
+            h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+            h += '</div>';
+        }
+    }
+    return h;
+}
+
+function worksheetBuildPage2(story, mcQuestions, openEndedQs, tier) {
+    var h = '<div class="page-break"></div>';
+    var sectionNum = 3;
+    // Section 3: Multiple Choice
+    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Comprehension Questions</div>';
+    var optLabels = ['A', 'B', 'C', 'D'];
+    for (var i = 0; i < mcQuestions.length; i++) {
+        var q = mcQuestions[i];
+        h += '<div class="mc-question">';
+        h += '<div class="mc-q-text"><strong>' + (i + 1) + '.</strong> ' + worksheetEscape(q.question) + '</div>';
+        if (q.type === 'truefalse') {
+            h += '<div class="tf-options">';
+            h += '<div class="tf-option"><span class="bubble"></span> True</div>';
+            h += '<div class="tf-option"><span class="bubble"></span> False</div>';
+            h += '</div>';
+        } else {
+            h += '<div class="mc-options">';
+            for (var j = 0; j < q.options.length; j++) {
+                h += '<div class="mc-option"><span class="bubble"></span> <strong>' + optLabels[j] + '.</strong> ' + worksheetEscape(q.options[j]) + '</div>';
+            }
+            h += '</div>';
+        }
+        h += '</div>';
+    }
+    // Section 4: Think Deeper (Open-Ended)
+    sectionNum++;
+    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Think Deeper</div>';
+    var lineCount = tier === 'early' ? 2 : (tier === 'developing' ? 3 : 4);
+    for (var i = 0; i < openEndedQs.length; i++) {
+        h += '<div class="oe-question">';
+        h += '<div class="oe-label">' + worksheetEscape(openEndedQs[i].label) + '</div>';
+        h += '<div class="oe-text">' + worksheetEscape(openEndedQs[i].text) + '</div>';
+        if (tier === 'early' && i === 0) {
+            h += '<div class="drawing-box">Draw or write here</div>';
+        } else {
+            for (var l = 0; l < lineCount; l++) {
+                h += '<div class="answer-line-wide"></div>';
+            }
+        }
+        h += '</div>';
+    }
+    return h;
+}
+
+function worksheetBuildPage3(story, vocab, grammar, tier) {
+    var h = '<div class="page-break"></div>';
+    var sectionNum = 5;
+    // Section 5: Grammar
+    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Grammar &amp; Language Skills</div>';
+    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">' + worksheetEscape(grammar.instruction) + '</div>';
+    for (var i = 0; i < grammar.sentences.length; i++) {
+        h += '<div class="grammar-sentence">"' + worksheetEscape(grammar.sentences[i]) + '"</div>';
+    }
+    for (var i = 0; i < grammar.tasks.length; i++) {
+        h += '<div class="grammar-task">' + worksheetEscape(grammar.tasks[i].text) + '</div>';
+        for (var l = 0; l < (grammar.tasks[i].lines || 0); l++) {
+            h += '<div class="answer-line"></div>';
+        }
+    }
+    // POS table for developing
+    if (grammar.posWords && grammar.posWords.length > 0) {
+        h += '<div style="margin-top:8px;font-size:10pt;">In the sentence: <em>"' + worksheetEscape(grammar.posSentence) + '"</em></div>';
+        h += '<table class="pos-table"><tr><th>Word</th><th>Part of Speech<br>(noun, verb, adjective, adverb)</th></tr>';
+        for (var i = 0; i < grammar.posWords.length; i++) {
+            h += '<tr><td><strong>' + worksheetEscape(grammar.posWords[i]) + '</strong></td><td></td></tr>';
+        }
+        h += '</table>';
+    }
+    // Label words table for advanced
+    if (grammar.labelWords && grammar.labelWords.length > 0) {
+        h += '<div style="margin-top:8px;font-size:10pt;">Label the part of speech for each word in: <em>"' + worksheetEscape(grammar.labelSentence) + '"</em></div>';
+        h += '<table class="pos-table"><tr><th>Word</th><th>Part of Speech</th></tr>';
+        for (var i = 0; i < grammar.labelWords.length; i++) {
+            h += '<tr><td><strong>' + worksheetEscape(grammar.labelWords[i]) + '</strong></td><td></td></tr>';
+        }
+        h += '</table>';
+    }
+    // Section 6: Context Clues (developing/advanced only)
+    if (tier !== 'early' && vocab.length > 0) {
+        sectionNum++;
+        h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Context Clues Challenge</div>';
+        h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read the sentence below. Use context clues to figure out the meaning of the bolded word.</div>';
+        var usedWord = null;
+        for (var i = 0; i < vocab.length; i++) {
+            var ctx = worksheetFindContext(story.text, vocab[i].word);
+            if (ctx) {
+                usedWord = vocab[i];
+                var highlighted = ctx.replace(new RegExp('(' + vocab[i].word + ')', 'gi'), '<span class="context-word">$1</span>');
+                h += '<div class="context-clue-box">';
+                h += '<div style="margin-bottom:6px;">"' + highlighted + '"</div>';
+                h += '<div style="font-size:11pt;">What do you think <strong>' + worksheetEscape(vocab[i].word) + '</strong> means? How do you know?</div>';
+                h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+                h += '</div>';
+                break;
+            }
+        }
+    }
+    return h;
+}
+
+function worksheetBuildPage4(story, tier) {
+    var h = '<div class="page-break"></div>';
+    var sectionNum = tier === 'early' ? 5 : 7;
+    // Section: Read-Aloud Practice
+    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Read-Aloud Practice</div>';
+    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read this story aloud 3 times. Track each reading below.</div>';
+    h += '<div class="read-aloud-grid">';
+    for (var r = 1; r <= 3; r++) {
+        h += '<div class="read-aloud-card">';
+        h += '<div class="ra-title">Reading #' + r + '</div>';
+        h += '<div class="ra-field"><span>Date:</span> <span class="ra-blank"></span></div>';
+        h += '<div class="ra-field"><span>Start Time:</span> <span class="ra-blank"></span></div>';
+        h += '<div class="ra-field"><span>End Time:</span> <span class="ra-blank"></span></div>';
+        if (tier !== 'early') {
+            h += '<div class="ra-field"><span>WPM:</span> <span class="ra-blank"></span></div>';
+        }
+        h += '<div style="margin-top:4px;font-size:9pt;">How did I do?</div>';
+        h += '<div class="star-rating">\u2606 \u2606 \u2606 \u2606 \u2606</div>';
+        h += '</div>';
+    }
+    h += '</div>';
+    if (tier !== 'early') {
+        h += '<div class="wpm-helper">WPM Helper: This story has <strong>' + story.wordCount + '</strong> words. WPM = ' + story.wordCount + ' \u00f7 minutes read. Example: if you read it in 2 minutes, WPM = ' + Math.round(story.wordCount / 2) + '</div>';
+    }
+    // Section: My Reflection
+    sectionNum++;
+    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> My Reflection</div>';
+    if (tier === 'early') {
+        h += '<div class="reflection-prompt">What was your favorite part? Draw a picture and write about it.</div>';
+        h += '<div class="drawing-box">Draw here!</div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+    } else if (tier === 'developing') {
+        h += '<div class="reflection-prompt">What was your favorite part of this story and why?</div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+        h += '<div class="reflection-prompt" style="margin-top:10px;">What is something new you learned or thought about after reading this?</div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+    } else {
+        h += '<div class="reflection-prompt">What was the most important idea in this text? How does it connect to what you already know?</div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+        h += '<div class="reflection-prompt" style="margin-top:10px;">If you could ask the author one question, what would it be and why?</div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+        h += '<div class="reflection-prompt" style="margin-top:10px;">Rate your understanding of this text: 1 (confusing) to 5 (totally got it) and explain.</div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+    }
+    return h;
+}
+
+function worksheetBuildCombinedPage3(story, vocab, grammar, tier) {
+    // For early readers: combine grammar, read-aloud, and reflection on fewer pages
+    var h = '<div class="page-break"></div>';
+    // Grammar (simplified)
+    h += '<div class="section-title"><span class="section-num">3</span> Grammar &amp; Language Skills</div>';
+    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">' + worksheetEscape(grammar.instruction) + '</div>';
+    for (var i = 0; i < Math.min(2, grammar.sentences.length); i++) {
+        h += '<div class="grammar-sentence">"' + worksheetEscape(grammar.sentences[i]) + '"</div>';
+    }
+    for (var i = 0; i < grammar.tasks.length; i++) {
+        h += '<div class="grammar-task">' + worksheetEscape(grammar.tasks[i].text) + '</div>';
+        for (var l = 0; l < (grammar.tasks[i].lines || 0); l++) {
+            h += '<div class="answer-line"></div>';
+        }
+    }
+    // Read-Aloud (simplified for early)
+    h += '<div class="section-title"><span class="section-num">4</span> Read-Aloud Practice</div>';
+    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read this story aloud 3 times. Color a star each time!</div>';
+    h += '<div class="read-aloud-grid">';
+    for (var r = 1; r <= 3; r++) {
+        h += '<div class="read-aloud-card">';
+        h += '<div class="ra-title">Reading #' + r + '</div>';
+        h += '<div class="ra-field"><span>Date:</span> <span class="ra-blank"></span></div>';
+        h += '<div style="margin-top:4px;font-size:9pt;">How did I do?</div>';
+        h += '<div class="star-rating">\u2606 \u2606 \u2606 \u2606 \u2606</div>';
+        h += '</div>';
+    }
+    h += '</div>';
+    // Reflection (drawing box)
+    h += '<div class="section-title"><span class="section-num">5</span> My Reflection</div>';
+    h += '<div class="reflection-prompt">What was your favorite part? Draw a picture!</div>';
+    h += '<div class="drawing-box">Draw here!</div>';
+    return h;
+}
+
+function buildWorksheetHTML(story, vocab, mcQuestions, openEndedQs, grammar, tier) {
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+    html += '<title>Worksheet - ' + worksheetEscape(story.title) + '</title>';
+    html += '<style>' + getWorksheetCSS() + '</style>';
+    html += '</head><body>';
+    // Page 1: Story & Vocabulary
+    html += worksheetBuildPage1(story, vocab, tier);
+    // Page 2: Comprehension
+    html += worksheetBuildPage2(story, mcQuestions, openEndedQs, tier);
+    if (tier === 'early') {
+        // Combined page for grammar + read-aloud + reflection
+        html += worksheetBuildCombinedPage3(story, vocab, grammar, tier);
+    } else {
+        // Page 3: Grammar & Context Clues
+        html += worksheetBuildPage3(story, vocab, grammar, tier);
+        // Page 4: Read-Aloud & Reflection
+        html += worksheetBuildPage4(story, tier);
+    }
+    // Footer
+    html += '<div class="footer">Reading Quest Pro \u2022 Printable Worksheet \u2022 Level ' + worksheetEscape(story.level) + '</div>';
+    html += '</body></html>';
+    return html;
+}
+
+function generateWorksheet(storyIdOverride) {
+    var story = null;
+    if (storyIdOverride) {
+        story = stories.find(function(s) { return s.id === storyIdOverride; });
+    } else if (typeof selectedStory !== 'undefined' && selectedStory) {
+        story = selectedStory;
+    }
+    if (!story) {
+        if (typeof showToast === 'function') showToast('Please start reading a story first!', 'info');
+        return;
+    }
+    var tier = getWorksheetTier(story.level);
+    var maxMC = tier === 'early' ? 4 : 6;
+    // Get vocabulary
+    var vocab = [];
+    if (typeof getStoryVocabulary === 'function') {
+        vocab = getStoryVocabulary(story.text, story.level, story.id);
+    }
+    // Get MC questions
+    var mcQuestions = worksheetSelectQuestions(story.id, maxMC);
+    // Generate open-ended questions
+    var openEndedQs = worksheetOpenEnded(story, tier);
+    // Generate grammar activities
+    var grammar = worksheetGrammar(story, tier);
+    // Build full HTML
+    var html = buildWorksheetHTML(story, vocab, mcQuestions, openEndedQs, grammar, tier);
+    // Open in new window
+    var printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        if (typeof showToast === 'function') showToast('Pop-up blocked! Please allow pop-ups for this site.', 'error');
+        return;
+    }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(function() { printWindow.print(); }, 500);
+    if (typeof showToast === 'function') showToast('Worksheet generated! Use Save as PDF or print.', 'success');
+}
+
 
 function buildUI() {
     // Build level labels

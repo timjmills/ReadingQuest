@@ -615,6 +615,12 @@
             box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
         }
 
+        .btn-print-worksheet {
+            background: linear-gradient(135deg, #059669 0%, #10B981 50%, #34D399 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(5, 150, 105, 0.4);
+        }
+
         .story-btn:hover {
             transform: translateY(-3px) scale(1.05);
             box-shadow: 0 8px 25px rgba(0,0,0,0.25);
