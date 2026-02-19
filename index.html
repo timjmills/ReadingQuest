@@ -33,7 +33,14 @@
             <div class="modal-body"></div>
         </div>
     </div>
-    
+
+    <!-- Print Worksheet Modal -->
+    <div id="printModal" class="print-modal" onclick="if(event.target===this)closePrintModal()">
+        <div class="print-modal-content">
+            <div class="modal-body"></div>
+        </div>
+    </div>
+
     <!-- Toast Container -->
     <div id="toast" class="toast"></div>
 
@@ -146,6 +153,7 @@
 
                 <div class="action-buttons" style="position: relative; z-index: 1;">
                     <button class="btn-primary" id="startBtn" disabled onclick="startPractice()">🎮 Start Practice</button>
+                    <button class="btn-secondary" onclick="openPrintModal()">🖨️ Print Worksheet</button>
                 </div>
             </section>
 

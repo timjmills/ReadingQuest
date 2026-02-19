@@ -4295,12 +4295,10 @@ function worksheetOpenEnded(story, tier) {
     } else if (tier === 'developing') {
         qs.push({ label: 'Main Idea (Think and Search)', text: 'What is the main idea of this story? Use at least one detail from the text to support your answer.' });
         qs.push({ label: fiction ? 'Character Analysis (Author and Me)' : "Author's Purpose (Author and Me)", text: fiction ? 'How does ' + charStr + ' change from the beginning to the end of the story? What causes this change?' : 'Why do you think the author wrote this passage? What did they want you to learn?' });
-        qs.push({ label: 'Personal Connection (On My Own)', text: 'Have you ever experienced something similar to what happened in this story? Explain your connection.' });
     } else {
         qs.push({ label: 'Central Idea with Evidence (Think and Search)', text: 'Identify the central idea of this passage. Cite two pieces of text evidence that support your answer.' });
         qs.push({ label: fiction ? 'Character Analysis (Author and Me)' : "Author's Purpose (Author and Me)", text: fiction ? 'Analyze how ' + charStr + ' responds to the central conflict. What do their actions reveal about their character?' : "What is the author's purpose in writing this passage? How does the author use specific details to achieve this purpose?" });
         qs.push({ label: 'Text-to-World Connection (On My Own)', text: 'How does this story connect to something in your own life or in the world around you? Explain your thinking.' });
-        qs.push({ label: 'Evaluate (Critical Thinking)', text: fiction ? 'Do you agree with the choices ' + charStr + ' made? Why or why not? Use evidence from the text.' : 'Do you think the information in this passage is important? Why or why not? Support your answer with details.' });
     }
     return qs;
 }
@@ -4326,19 +4324,18 @@ function worksheetGrammar(story, tier) {
         ];
         if (sentences.length > 0) {
             var words = sentences[0].split(/\s+/).map(function(w) { return w.replace(/[^a-zA-Z']/g, ''); }).filter(function(w) { return w.length > 2; });
-            result.posWords = words.slice(0, Math.min(4, words.length));
+            result.posWords = words.slice(0, Math.min(3, words.length));
             result.posSentence = sentences[0];
         }
     } else {
         result.instruction = 'Read these sentences from the story carefully. Complete the grammar activities below.';
         result.tasks = [
             { text: 'For each sentence above, identify the Subject and Verb.', lines: 3 },
-            { text: 'Find 2 adjectives from the passage. Write each adjective and what it describes.', lines: 2 },
-            { text: 'Find 1 adverb from the passage. Write the adverb and explain what it tells us.', lines: 2 }
+            { text: 'Find 2 adjectives from the passage. Write each adjective and what it describes.', lines: 2 }
         ];
         if (sentences.length > 0) {
             var words = sentences[0].split(/\s+/).map(function(w) { return w.replace(/[^a-zA-Z']/g, ''); }).filter(function(w) { return w.length > 1; });
-            result.labelWords = words.slice(0, 6);
+            result.labelWords = words.slice(0, 4);
             result.labelSentence = sentences[0];
         }
     }
@@ -4354,64 +4351,73 @@ function worksheetFindContext(storyText, word) {
 }
 
 function getWorksheetCSS() {
-    return '* { margin: 0; padding: 0; box-sizing: border-box; }' +
-        'body { font-family: Georgia, "Times New Roman", serif; font-size: 12pt; line-height: 1.5; color: #000; padding: 0.5in 0.65in; }' +
-        '.ws-header { text-align: center; border-bottom: 3px solid #000; padding-bottom: 8px; margin-bottom: 12px; }' +
-        '.ws-title { font-size: 18pt; font-weight: bold; }' +
-        '.ws-subtitle { font-size: 10pt; color: #555; margin-top: 2px; }' +
-        '.name-date { display: flex; justify-content: space-between; margin: 10px 0; font-size: 11pt; }' +
-        '.name-date .field { display: flex; align-items: baseline; gap: 5px; }' +
-        '.name-date .blank { border-bottom: 1px solid #000; min-width: 180px; display: inline-block; height: 18px; }' +
-        '.story-info { display: flex; gap: 20px; font-size: 10pt; padding: 5px 10px; border: 1px solid #999; margin-bottom: 10px; }' +
-        '.story-info b { font-weight: bold; }' +
-        '.story-text-box { border: 1px solid #bbb; padding: 12px 15px; line-height: 2.0; font-size: 12pt; margin-bottom: 15px; }' +
-        '.section-title { font-size: 13pt; font-weight: bold; border-bottom: 2px solid #333; padding-bottom: 3px; margin: 18px 0 10px 0; }' +
-        '.section-num { display: inline-block; background: #000; color: #fff; width: 22px; height: 22px; text-align: center; line-height: 22px; font-size: 11pt; margin-right: 6px; border-radius: 3px; }' +
+    return '@import url("https://fonts.googleapis.com/css2?family=Fredoka+One&family=Comic+Neue:wght@400;700&display=swap");' +
+        '* { margin: 0; padding: 0; box-sizing: border-box; }' +
+        'body { font-family: "Comic Neue", cursive, sans-serif; font-size: 13pt; line-height: 1.5; color: #2d2d2d; padding: 0.5in 0.65in; }' +
+        '.ws-header { text-align: center; padding: 12px 10px 10px 10px; margin-bottom: 14px; border-bottom: 3px dashed #4ECDC4; background: linear-gradient(135deg, #FFF9E6 0%, #E8F8F5 100%); border-radius: 12px 12px 0 0; }' +
+        '.ws-title { font-family: "Fredoka One", cursive, sans-serif; font-size: 22pt; color: #FF6B6B; }' +
+        '.ws-subtitle { font-family: "Fredoka One", cursive, sans-serif; font-size: 13pt; color: #4ECDC4; margin-top: 2px; }' +
+        '.name-date { display: flex; justify-content: space-between; margin: 10px 0; font-size: 12pt; }' +
+        '.name-date .field { display: flex; align-items: baseline; gap: 5px; font-weight: 700; }' +
+        '.name-date .blank { border-bottom: 2px dotted #4ECDC4; min-width: 180px; display: inline-block; height: 20px; }' +
+        '.story-info { display: flex; gap: 18px; font-size: 10.5pt; padding: 6px 14px; background: #FFF9E6; border: 2px solid #FFE66D; border-radius: 20px; margin-bottom: 10px; }' +
+        '.story-info b { font-weight: bold; color: #E85D75; }' +
+        '.story-text-box { background: #FFF9E6; border: 2px dashed #C8B560; border-radius: 12px; padding: 14px 16px; line-height: 1.7; font-size: 13pt; margin-bottom: 15px; }' +
+        '.section-title { font-family: "Fredoka One", cursive, sans-serif; font-size: 15pt; font-weight: bold; border-bottom: 3px solid #4ECDC4; padding-bottom: 4px; margin: 18px 0 10px 0; color: #2d2d2d; }' +
+        '.section-num { display: inline-block; color: #fff; width: 24px; height: 24px; text-align: center; line-height: 24px; font-size: 12pt; margin-right: 6px; border-radius: 50%; }' +
+        '.section-num-1 { background: #FF6B6B; }' +
+        '.section-num-2 { background: #4ECDC4; }' +
+        '.section-num-3 { background: #FFB347; }' +
+        '.section-num-4 { background: #95E1D3; }' +
+        '.section-num-5 { background: #FF6B6B; }' +
+        '.section-num-6 { background: #A78BFA; }' +
+        '.section-num-7 { background: #4ECDC4; }' +
+        '.section-num-8 { background: #FFB347; }' +
         '.vocab-match-container { display: flex; justify-content: space-between; margin: 8px 0; }' +
         '.vocab-col { width: 42%; }' +
-        '.vocab-col-spacer { width: 10%; text-align: center; color: #ccc; padding-top: 10px; font-size: 18pt; }' +
-        '.vocab-item { margin: 6px 0; font-size: 11pt; }' +
-        '.vocab-word { font-weight: bold; }' +
+        '.vocab-col-spacer { width: 10%; text-align: center; color: #4ECDC4; padding-top: 10px; font-size: 18pt; }' +
+        '.vocab-item { margin: 6px 0; font-size: 11.5pt; }' +
+        '.vocab-word { font-weight: bold; color: #E85D75; }' +
         '.use-it-box { margin: 5px 0 10px 0; }' +
-        '.answer-line { border-bottom: 1px solid #aaa; height: 28px; margin: 4px 0; }' +
-        '.answer-line-wide { border-bottom: 1px solid #aaa; height: 35px; margin: 5px 0; }' +
+        '.answer-line { border-bottom: 1.5px dotted #aaa; height: 30px; margin: 4px 0; }' +
+        '.answer-line-wide { border-bottom: 1.5px dotted #aaa; height: 36px; margin: 5px 0; }' +
         '.mc-question { margin-bottom: 14px; }' +
-        '.mc-q-text { font-size: 11pt; margin-bottom: 4px; }' +
+        '.mc-q-text { font-size: 11.5pt; margin-bottom: 4px; }' +
         '.mc-options { margin-left: 15px; }' +
-        '.mc-option { margin: 3px 0; font-size: 11pt; display: flex; align-items: center; gap: 6px; }' +
-        '.bubble { display: inline-block; width: 14px; height: 14px; border: 1.5px solid #000; border-radius: 50%; flex-shrink: 0; }' +
+        '.mc-option { margin: 3px 0; font-size: 11.5pt; display: flex; align-items: center; gap: 6px; }' +
+        '.bubble { display: inline-block; width: 15px; height: 15px; border: 2px solid #4ECDC4; border-radius: 50%; flex-shrink: 0; }' +
         '.tf-options { display: flex; gap: 30px; margin-left: 15px; margin-top: 4px; }' +
-        '.tf-option { display: flex; align-items: center; gap: 6px; font-size: 11pt; }' +
+        '.tf-option { display: flex; align-items: center; gap: 6px; font-size: 11.5pt; }' +
         '.oe-question { margin-bottom: 12px; }' +
-        '.oe-label { font-weight: bold; font-size: 10pt; color: #333; margin-bottom: 2px; }' +
-        '.oe-text { font-size: 11pt; margin-bottom: 5px; }' +
-        '.grammar-sentence { font-style: italic; padding: 6px 10px; border-left: 3px solid #666; margin: 6px 0; font-size: 11pt; }' +
-        '.grammar-task { margin: 8px 0; font-size: 11pt; }' +
-        '.pos-table { width: 100%; border-collapse: collapse; margin: 8px 0; }' +
-        '.pos-table td, .pos-table th { border: 1px solid #999; padding: 5px 8px; font-size: 10pt; text-align: center; }' +
-        '.pos-table th { background: #eee; font-weight: bold; }' +
-        '.context-clue-box { border: 1px solid #999; padding: 10px; margin: 8px 0; }' +
-        '.context-word { font-weight: bold; text-decoration: underline; }' +
+        '.oe-label { font-family: "Fredoka One", cursive, sans-serif; font-weight: bold; font-size: 10.5pt; color: #FF6B6B; margin-bottom: 2px; }' +
+        '.oe-text { font-size: 11.5pt; margin-bottom: 5px; }' +
+        '.grammar-sentence { font-style: italic; padding: 7px 12px; border-left: 4px solid #A78BFA; background: #F5F0FF; border-radius: 0 8px 8px 0; margin: 6px 0; font-size: 11.5pt; }' +
+        '.grammar-task { margin: 8px 0; font-size: 11.5pt; }' +
+        '.pos-table { width: 100%; border-collapse: collapse; margin: 8px 0; border-radius: 8px; overflow: hidden; }' +
+        '.pos-table td, .pos-table th { border: 1px solid #ccc; padding: 6px 8px; font-size: 10.5pt; text-align: center; }' +
+        '.pos-table th { background: #4ECDC4; color: #fff; font-weight: bold; }' +
+        '.context-clue-box { border: 2px solid #A78BFA; border-radius: 12px; padding: 12px; margin: 8px 0; background: #FDFAFF; }' +
+        '.context-word { font-weight: bold; text-decoration: underline; color: #A78BFA; }' +
         '.read-aloud-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 8px 0; }' +
-        '.read-aloud-card { border: 1.5px solid #000; padding: 8px; font-size: 10pt; }' +
-        '.ra-title { font-weight: bold; text-align: center; margin-bottom: 6px; font-size: 11pt; }' +
+        '.read-aloud-card { border: 2px solid #95E1D3; border-radius: 12px; padding: 10px; font-size: 10.5pt; background: #F0FBF8; }' +
+        '.ra-title { font-family: "Fredoka One", cursive, sans-serif; font-weight: bold; text-align: center; margin-bottom: 6px; font-size: 11.5pt; color: #4ECDC4; }' +
         '.ra-field { margin: 5px 0; display: flex; justify-content: space-between; }' +
-        '.ra-blank { border-bottom: 1px solid #000; min-width: 60px; }' +
-        '.star-rating { font-size: 14pt; text-align: center; letter-spacing: 3px; margin-top: 5px; }' +
-        '.wpm-helper { font-size: 9pt; color: #555; text-align: center; margin-top: 8px; padding: 5px; border: 1px dashed #aaa; }' +
-        '.drawing-box { border: 2px solid #000; height: 160px; margin: 8px 0; display: flex; align-items: center; justify-content: center; color: #ddd; font-size: 14pt; }' +
-        '.reflection-prompt { font-size: 11pt; margin-bottom: 4px; }' +
+        '.ra-blank { border-bottom: 1.5px dotted #4ECDC4; min-width: 60px; }' +
+        '.star-rating { font-size: 14pt; text-align: center; letter-spacing: 3px; margin-top: 5px; color: #FFB347; }' +
+        '.wpm-helper { font-size: 9pt; color: #666; text-align: center; margin-top: 8px; padding: 6px; border: 2px dashed #95E1D3; border-radius: 8px; background: #F0FBF8; }' +
+        '.drawing-box { border: 3px dashed #4ECDC4; border-radius: 12px; height: 160px; margin: 8px 0; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 14pt; background: #FAFFFE; }' +
+        '.reflection-prompt { font-size: 11.5pt; margin-bottom: 4px; }' +
         '.page-break { page-break-before: always; break-before: page; }' +
         '.footer { text-align: center; font-size: 8pt; color: #999; margin-top: 15px; padding-top: 5px; border-top: 1px solid #ddd; }' +
-        '@media print { body { padding: 0.4in 0.6in; } .story-info { background: none !important; } .section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .pos-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }';
+        '@media print { body { padding: 0.4in 0.6in; } .ws-page { max-height: 100vh; overflow: hidden; page-break-after: always; } .ws-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .story-info { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .story-text-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .pos-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .grammar-sentence { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .context-clue-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .read-aloud-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .wpm-helper { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .bubble { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }';
 }
 
 function worksheetBuildPage1(story, vocab, tier) {
     var h = '';
     // Header
     h += '<div class="ws-header">';
-    h += '<div class="ws-title">Reading Quest Pro \u2014 Reading Worksheet</div>';
-    h += '<div class="ws-subtitle">' + worksheetEscape(story.title) + '</div>';
+    h += '<div class="ws-title">\uD83D\uDCDA Reading Quest Pro \u2728</div>';
+    h += '<div class="ws-subtitle">Reading Adventure Worksheet \u2014 ' + worksheetEscape(story.title) + '</div>';
     h += '</div>';
     h += '<div class="name-date">';
     h += '<div class="field">Name: <span class="blank"></span></div>';
@@ -4419,15 +4425,15 @@ function worksheetBuildPage1(story, vocab, tier) {
     h += '</div>';
     // Story info
     h += '<div class="story-info">';
-    h += '<div>Level: <b>' + worksheetEscape(story.level) + '</b></div>';
-    h += '<div>Genre: <b>' + (story.genre === 'fiction' ? 'Fiction' : 'Non-Fiction') + '</b></div>';
-    h += '<div>Words: <b>' + story.wordCount + '</b></div>';
+    h += '<div>\uD83D\uDCD6 Level: <b>' + worksheetEscape(story.level) + '</b></div>';
+    h += '<div>\uD83D\uDCDD Genre: <b>' + (story.genre === 'fiction' ? 'Fiction' : 'Non-Fiction') + '</b></div>';
+    h += '<div>\uD83D\uDD22 Words: <b>' + story.wordCount + '</b></div>';
     h += '</div>';
     // Story text
     h += '<div class="story-text-box">' + worksheetEscape(story.text) + '</div>';
     // Section 1: Vocabulary Match
     if (vocab.length > 0) {
-        h += '<div class="section-title"><span class="section-num">1</span> Vocabulary Match</div>';
+        h += '<div class="section-title"><span class="section-num section-num-1">1</span> \uD83D\uDCD6 Vocabulary Match</div>';
         h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Draw a line from each word to its correct definition.</div>';
         var defs = vocab.map(function(v) { return v.def; });
         for (var i = defs.length - 1; i > 0; i--) {
@@ -4448,12 +4454,12 @@ function worksheetBuildPage1(story, vocab, tier) {
         }
         h += '</div></div>';
         // Section 2: Use It!
-        h += '<div class="section-title"><span class="section-num">2</span> Use It!</div>';
+        h += '<div class="section-title"><span class="section-num section-num-2">2</span> \u270D\uFE0F Use It!</div>';
         h += '<div style="font-size:10pt;margin-bottom:6px;">Choose 2 vocabulary words from above. Write a sentence using each word.</div>';
         for (var i = 0; i < Math.min(2, vocab.length); i++) {
             h += '<div class="use-it-box">';
             h += '<div style="font-size:11pt;"><strong>' + worksheetEscape(vocab[i].word) + '</strong>:</div>';
-            h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+            h += '<div class="answer-line-wide"></div>';
             h += '</div>';
         }
     }
@@ -4464,7 +4470,7 @@ function worksheetBuildPage2(story, mcQuestions, openEndedQs, tier) {
     var h = '<div class="page-break"></div>';
     var sectionNum = 3;
     // Section 3: Multiple Choice
-    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Comprehension Questions</div>';
+    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83E\uDD14 Comprehension Questions</div>';
     var optLabels = ['A', 'B', 'C', 'D'];
     for (var i = 0; i < mcQuestions.length; i++) {
         var q = mcQuestions[i];
@@ -4486,8 +4492,8 @@ function worksheetBuildPage2(story, mcQuestions, openEndedQs, tier) {
     }
     // Section 4: Think Deeper (Open-Ended)
     sectionNum++;
-    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Think Deeper</div>';
-    var lineCount = tier === 'early' ? 2 : (tier === 'developing' ? 3 : 4);
+    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83D\uDCAD Think Deeper</div>';
+    var lineCount = tier === 'early' ? 2 : (tier === 'developing' ? 2 : 3);
     for (var i = 0; i < openEndedQs.length; i++) {
         h += '<div class="oe-question">';
         h += '<div class="oe-label">' + worksheetEscape(openEndedQs[i].label) + '</div>';
@@ -4508,7 +4514,7 @@ function worksheetBuildPage3(story, vocab, grammar, tier) {
     var h = '<div class="page-break"></div>';
     var sectionNum = 5;
     // Section 5: Grammar
-    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Grammar &amp; Language Skills</div>';
+    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83D\uDCDD Grammar &amp; Language Skills</div>';
     h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">' + worksheetEscape(grammar.instruction) + '</div>';
     for (var i = 0; i < grammar.sentences.length; i++) {
         h += '<div class="grammar-sentence">"' + worksheetEscape(grammar.sentences[i]) + '"</div>';
@@ -4540,7 +4546,7 @@ function worksheetBuildPage3(story, vocab, grammar, tier) {
     // Section 6: Context Clues (developing/advanced only)
     if (tier !== 'early' && vocab.length > 0) {
         sectionNum++;
-        h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Context Clues Challenge</div>';
+        h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83D\uDD0D Context Clues Challenge</div>';
         h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read the sentence below. Use context clues to figure out the meaning of the bolded word.</div>';
         var usedWord = null;
         for (var i = 0; i < vocab.length; i++) {
@@ -4564,7 +4570,7 @@ function worksheetBuildPage4(story, tier) {
     var h = '<div class="page-break"></div>';
     var sectionNum = tier === 'early' ? 5 : 7;
     // Section: Read-Aloud Practice
-    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> Read-Aloud Practice</div>';
+    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83C\uDFA4 Read-Aloud Practice</div>';
     h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read this story aloud 3 times. Track each reading below.</div>';
     h += '<div class="read-aloud-grid">';
     for (var r = 1; r <= 3; r++) {
@@ -4586,23 +4592,21 @@ function worksheetBuildPage4(story, tier) {
     }
     // Section: My Reflection
     sectionNum++;
-    h += '<div class="section-title"><span class="section-num">' + sectionNum + '</span> My Reflection</div>';
+    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \u2B50 My Reflection</div>';
     if (tier === 'early') {
         h += '<div class="reflection-prompt">What was your favorite part? Draw a picture and write about it.</div>';
         h += '<div class="drawing-box">Draw here!</div>';
         h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
     } else if (tier === 'developing') {
         h += '<div class="reflection-prompt">What was your favorite part of this story and why?</div>';
-        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
         h += '<div class="reflection-prompt" style="margin-top:10px;">What is something new you learned or thought about after reading this?</div>';
-        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
+        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
     } else {
         h += '<div class="reflection-prompt">What was the most important idea in this text? How does it connect to what you already know?</div>';
         h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
         h += '<div class="reflection-prompt" style="margin-top:10px;">If you could ask the author one question, what would it be and why?</div>';
         h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
-        h += '<div class="reflection-prompt" style="margin-top:10px;">Rate your understanding of this text: 1 (confusing) to 5 (totally got it) and explain.</div>';
-        h += '<div class="answer-line-wide"></div><div class="answer-line-wide"></div>';
     }
     return h;
 }
@@ -4611,7 +4615,7 @@ function worksheetBuildCombinedPage3(story, vocab, grammar, tier) {
     // For early readers: combine grammar, read-aloud, and reflection on fewer pages
     var h = '<div class="page-break"></div>';
     // Grammar (simplified)
-    h += '<div class="section-title"><span class="section-num">3</span> Grammar &amp; Language Skills</div>';
+    h += '<div class="section-title"><span class="section-num section-num-3">3</span> \uD83D\uDCDD Grammar &amp; Language Skills</div>';
     h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">' + worksheetEscape(grammar.instruction) + '</div>';
     for (var i = 0; i < Math.min(2, grammar.sentences.length); i++) {
         h += '<div class="grammar-sentence">"' + worksheetEscape(grammar.sentences[i]) + '"</div>';
@@ -4623,7 +4627,7 @@ function worksheetBuildCombinedPage3(story, vocab, grammar, tier) {
         }
     }
     // Read-Aloud (simplified for early)
-    h += '<div class="section-title"><span class="section-num">4</span> Read-Aloud Practice</div>';
+    h += '<div class="section-title"><span class="section-num section-num-4">4</span> \uD83C\uDFA4 Read-Aloud Practice</div>';
     h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read this story aloud 3 times. Color a star each time!</div>';
     h += '<div class="read-aloud-grid">';
     for (var r = 1; r <= 3; r++) {
@@ -4636,7 +4640,7 @@ function worksheetBuildCombinedPage3(story, vocab, grammar, tier) {
     }
     h += '</div>';
     // Reflection (drawing box)
-    h += '<div class="section-title"><span class="section-num">5</span> My Reflection</div>';
+    h += '<div class="section-title"><span class="section-num section-num-5">5</span> \u2B50 My Reflection</div>';
     h += '<div class="reflection-prompt">What was your favorite part? Draw a picture!</div>';
     h += '<div class="drawing-box">Draw here!</div>';
     return h;
@@ -4666,6 +4670,23 @@ function buildWorksheetHTML(story, vocab, mcQuestions, openEndedQs, grammar, tie
     return html;
 }
 
+function generateWorksheetFromHome() {
+    var valid = LEVELS.slice(minLevel, maxLevel + 1);
+    var validStories = [];
+    for (var i = 0; i < stories.length; i++) {
+        var s = stories[i];
+        if (valid.indexOf(s.level) < 0) continue;
+        if (selectedGenre !== 'both' && s.genre !== selectedGenre) continue;
+        validStories.push(s);
+    }
+    if (validStories.length === 0) {
+        if (typeof showToast === 'function') showToast('No stories found for selected levels and genre.', 'info');
+        return;
+    }
+    var randomStory = validStories[Math.floor(Math.random() * validStories.length)];
+    generateWorksheet(randomStory.id);
+}
+
 function generateWorksheet(storyIdOverride) {
     var story = null;
     if (storyIdOverride) {
@@ -4678,7 +4699,7 @@ function generateWorksheet(storyIdOverride) {
         return;
     }
     var tier = getWorksheetTier(story.level);
-    var maxMC = tier === 'early' ? 4 : 6;
+    var maxMC = tier === 'early' ? 3 : 4;
     // Get vocabulary
     var vocab = [];
     if (typeof getStoryVocabulary === 'function') {
@@ -4704,6 +4725,254 @@ function generateWorksheet(storyIdOverride) {
     if (typeof showToast === 'function') showToast('Worksheet generated! Use Save as PDF or print.', 'success');
 }
 
+// ===== Print Worksheet Selection Modal =====
+
+var printModalBand = 'all';
+var printModalGenre = 'all';
+var printSelectedIds = {};
+
+var PRINT_BANDS = [
+    { key: 'early', label: 'Early (aa-B)', emoji: '', levels: ['aa','A','B'] },
+    { key: 'beginning', label: 'Beginning (C-E)', emoji: '', levels: ['C','D','E'] },
+    { key: 'developing', label: 'Developing (F-H)', emoji: '', levels: ['F','G','H'] },
+    { key: 'transitional', label: 'Transitional (I-K)', emoji: '', levels: ['I','J','K'] },
+    { key: 'intermediate', label: 'Intermediate (L-N)', emoji: '', levels: ['L','M','N'] },
+    { key: 'upper', label: 'Upper (O-R)', emoji: '', levels: ['O','P','Q','R'] },
+    { key: 'advanced', label: 'Advanced (S-V)', emoji: '', levels: ['S','T','U','V'] },
+    { key: 'challenge', label: 'Challenge (W-Z)', emoji: '', levels: ['W','X','Y','Z'] }
+];
+
+function getPrintLevelColor(level) {
+    var idx = LEVELS.indexOf(level);
+    if (idx < 0) return '#94a3b8';
+    var colors = [
+        '#f472b6','#f472b6','#f472b6',
+        '#fb923c','#fb923c','#fb923c',
+        '#facc15','#facc15','#facc15',
+        '#4ade80','#4ade80','#4ade80',
+        '#22d3ee','#22d3ee','#22d3ee',
+        '#60a5fa','#60a5fa','#60a5fa','#60a5fa',
+        '#a78bfa','#a78bfa','#a78bfa','#a78bfa',
+        '#f87171','#f87171','#f87171','#f87171'
+    ];
+    return colors[idx] || '#94a3b8';
+}
+
+function getFilteredPrintStories() {
+    var filtered = [];
+    for (var i = 0; i < stories.length; i++) {
+        var s = stories[i];
+        // Band filter
+        if (printModalBand !== 'all') {
+            var band = null;
+            for (var b = 0; b < PRINT_BANDS.length; b++) {
+                if (PRINT_BANDS[b].key === printModalBand) { band = PRINT_BANDS[b]; break; }
+            }
+            if (band && band.levels.indexOf(s.level) < 0) continue;
+        }
+        // Genre filter
+        if (printModalGenre !== 'all' && s.genre !== printModalGenre) continue;
+        filtered.push(s);
+    }
+    // Sort by level index then title
+    filtered.sort(function(a, b) {
+        var la = LEVELS.indexOf(a.level);
+        var lb = LEVELS.indexOf(b.level);
+        if (la !== lb) return la - lb;
+        return a.title.localeCompare(b.title);
+    });
+    return filtered;
+}
+
+function openPrintModal() {
+    printModalBand = 'all';
+    printModalGenre = 'all';
+    printSelectedIds = {};
+    var modal = document.getElementById('printModal');
+    modal.style.display = 'flex';
+    renderPrintModalBody();
+}
+
+function closePrintModal() {
+    document.getElementById('printModal').style.display = 'none';
+}
+
+function renderPrintModalBody() {
+    var body = document.querySelector('#printModal .modal-body');
+    var filtered = getFilteredPrintStories();
+    var selectedCount = countPrintSelected(filtered);
+
+    var html = '';
+
+    // Header
+    html += '<div class="print-modal-header">';
+    html += '<h2>Print Worksheets</h2>';
+    html += '<button class="print-modal-close" onclick="closePrintModal()" title="Close">&times;</button>';
+    html += '</div>';
+
+    // Band filters
+    html += '<div class="print-band-filters">';
+    html += '<button class="print-band-btn' + (printModalBand === 'all' ? ' active' : '') + '" onclick="setPrintBand(\'all\')">All Levels</button>';
+    for (var b = 0; b < PRINT_BANDS.length; b++) {
+        var band = PRINT_BANDS[b];
+        var isActive = printModalBand === band.key ? ' active' : '';
+        html += '<button class="print-band-btn' + isActive + '" onclick="setPrintBand(\'' + band.key + '\')">' + band.label + '</button>';
+    }
+    html += '</div>';
+
+    // Genre filters
+    html += '<div class="print-genre-filters">';
+    var genres = [
+        { key: 'all', label: 'All' },
+        { key: 'fiction', label: 'Fiction' },
+        { key: 'nonfiction', label: 'Non-Fiction' }
+    ];
+    for (var g = 0; g < genres.length; g++) {
+        var isActive = printModalGenre === genres[g].key ? ' active' : '';
+        html += '<button class="print-genre-btn' + isActive + '" onclick="setPrintGenre(\'' + genres[g].key + '\')">' + genres[g].label + '</button>';
+    }
+    html += '</div>';
+
+    // Select All + count
+    var allChecked = filtered.length > 0 && selectedCount === filtered.length;
+    html += '<div class="print-select-bar">';
+    html += '<label><input type="checkbox" id="printSelectAll" onclick="toggleAllPrintStories()" ' + (allChecked ? 'checked' : '') + '> Select All</label>';
+    html += '<span class="print-story-count">' + filtered.length + ' stories</span>';
+    html += '</div>';
+
+    // Story list
+    html += '<div class="print-story-list">';
+    if (filtered.length === 0) {
+        html += '<div style="padding: 24px; text-align: center; color: #94a3b8; font-weight: 600;">No stories match these filters.</div>';
+    }
+    for (var i = 0; i < filtered.length; i++) {
+        var s = filtered[i];
+        var checked = printSelectedIds[s.id] ? ' checked' : '';
+        var color = getPrintLevelColor(s.level);
+        var genreLabel = s.genre === 'fiction' ? 'FIC' : 'NF';
+        html += '<div class="print-story-row" onclick="togglePrintStory(' + s.id + ', event)">';
+        html += '<input type="checkbox" data-story-id="' + s.id + '"' + checked + ' onclick="event.stopPropagation(); togglePrintStory(' + s.id + ', event)">';
+        html += '<span class="print-story-title">' + escapeHtml(s.title) + '</span>';
+        html += '<span class="print-level-badge" style="background:' + color + ';">' + s.level + '</span>';
+        html += '<span class="print-genre-tag">' + genreLabel + '</span>';
+        html += '</div>';
+    }
+    html += '</div>';
+
+    // Action bar
+    html += '<div class="print-action-bar">';
+    html += '<button class="print-action-btn" id="printSelectedBtn" onclick="printSelectedWorksheets()"' + (selectedCount === 0 ? ' disabled' : '') + '>Print Selected (' + selectedCount + ')</button>';
+    html += '</div>';
+
+    body.innerHTML = html;
+}
+
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
+function countPrintSelected(filtered) {
+    var count = 0;
+    for (var i = 0; i < filtered.length; i++) {
+        if (printSelectedIds[filtered[i].id]) count++;
+    }
+    return count;
+}
+
+function setPrintBand(band) {
+    printModalBand = band;
+    renderPrintModalBody();
+}
+
+function setPrintGenre(genre) {
+    printModalGenre = genre;
+    renderPrintModalBody();
+}
+
+function togglePrintStory(storyId, event) {
+    if (event) event.stopPropagation();
+    if (printSelectedIds[storyId]) {
+        delete printSelectedIds[storyId];
+    } else {
+        printSelectedIds[storyId] = true;
+    }
+    updatePrintSelectionUI();
+}
+
+function toggleAllPrintStories() {
+    var filtered = getFilteredPrintStories();
+    var allChecked = countPrintSelected(filtered) === filtered.length;
+    if (allChecked) {
+        // Deselect all visible
+        for (var i = 0; i < filtered.length; i++) {
+            delete printSelectedIds[filtered[i].id];
+        }
+    } else {
+        // Select all visible
+        for (var i = 0; i < filtered.length; i++) {
+            printSelectedIds[filtered[i].id] = true;
+        }
+    }
+    updatePrintSelectionUI();
+}
+
+function updatePrintSelectionUI() {
+    var filtered = getFilteredPrintStories();
+    var selectedCount = countPrintSelected(filtered);
+    var allChecked = filtered.length > 0 && selectedCount === filtered.length;
+
+    // Update checkboxes
+    var rows = document.querySelectorAll('#printModal .print-story-row input[type="checkbox"]');
+    for (var i = 0; i < rows.length; i++) {
+        var sid = parseInt(rows[i].getAttribute('data-story-id'), 10);
+        rows[i].checked = !!printSelectedIds[sid];
+    }
+
+    // Update select all
+    var selectAll = document.getElementById('printSelectAll');
+    if (selectAll) selectAll.checked = allChecked;
+
+    // Update button
+    var btn = document.getElementById('printSelectedBtn');
+    if (btn) {
+        btn.disabled = selectedCount === 0;
+        btn.textContent = 'Print Selected (' + selectedCount + ')';
+    }
+}
+
+function printSelectedWorksheets() {
+    var ids = [];
+    for (var id in printSelectedIds) {
+        if (printSelectedIds[id]) ids.push(parseInt(id, 10));
+    }
+    if (ids.length === 0) return;
+
+    closePrintModal();
+
+    if (ids.length > 10) {
+        showToast('Generating ' + ids.length + ' worksheets. This may take a moment...', 'info');
+    }
+
+    var i = 0;
+    function printNext() {
+        if (i >= ids.length) {
+            showToast('Generated ' + ids.length + ' worksheet' + (ids.length > 1 ? 's' : '') + '!', 'success');
+            return;
+        }
+        generateWorksheet(ids[i]);
+        i++;
+        if (i < ids.length) {
+            setTimeout(printNext, 300);
+        } else {
+            showToast('Generated ' + ids.length + ' worksheet' + (ids.length > 1 ? 's' : '') + '!', 'success');
+        }
+    }
+    printNext();
+}
+
+// ===== End Print Worksheet Modal =====
 
 function buildUI() {
     // Build level labels
@@ -9032,150 +9301,154 @@ var questions = [
 
             { id: 504, storyId: 42, category: "context", type: "multiple", question: "What does 'round trip' mean?", options: ["Going somewhere and coming back", "A trip by car", "A trip in a circle", "A short trip"], correct: 0, hint: "Arctic terns travel there AND back.", explanation: "A round trip means going to a place and returning!" },
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
-            { id: 1033, storyId: 43, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1034, storyId: 43, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1035, storyId: 43, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1036, storyId: 43, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1037, storyId: 43, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1038, storyId: 43, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1039, storyId: 43, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1040, storyId: 43, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1041, storyId: 43, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1042, storyId: 43, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1043, storyId: 43, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1044, storyId: 43, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1045, storyId: 44, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1046, storyId: 44, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1047, storyId: 44, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1048, storyId: 44, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1049, storyId: 44, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1050, storyId: 44, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1051, storyId: 44, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1052, storyId: 44, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1053, storyId: 44, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1054, storyId: 44, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1055, storyId: 44, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1056, storyId: 44, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1057, storyId: 45, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1058, storyId: 45, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1059, storyId: 45, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1060, storyId: 45, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1061, storyId: 45, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1062, storyId: 45, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1063, storyId: 45, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1064, storyId: 45, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1065, storyId: 45, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1066, storyId: 45, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1067, storyId: 45, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1068, storyId: 45, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1069, storyId: 46, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1070, storyId: 46, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1071, storyId: 46, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1072, storyId: 46, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1073, storyId: 46, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1074, storyId: 46, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1075, storyId: 46, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1076, storyId: 46, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1077, storyId: 46, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1078, storyId: 46, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1079, storyId: 46, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1080, storyId: 46, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1081, storyId: 47, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1082, storyId: 47, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1083, storyId: 47, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1084, storyId: 47, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1085, storyId: 47, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1086, storyId: 47, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1087, storyId: 47, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1088, storyId: 47, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1089, storyId: 47, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1090, storyId: 47, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1091, storyId: 47, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1092, storyId: 47, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1093, storyId: 48, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1094, storyId: 48, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1095, storyId: 48, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1096, storyId: 48, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1097, storyId: 48, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1098, storyId: 48, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1099, storyId: 48, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1100, storyId: 48, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1101, storyId: 48, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1102, storyId: 48, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1103, storyId: 48, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1104, storyId: 48, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1105, storyId: 49, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1106, storyId: 49, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1107, storyId: 49, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1108, storyId: 49, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1109, storyId: 49, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1110, storyId: 49, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1111, storyId: 49, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1112, storyId: 49, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1113, storyId: 49, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1114, storyId: 49, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1115, storyId: 49, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1116, storyId: 49, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1117, storyId: 50, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1118, storyId: 50, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1119, storyId: 50, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1120, storyId: 50, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1121, storyId: 50, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1122, storyId: 50, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1123, storyId: 50, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1124, storyId: 50, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1125, storyId: 50, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1126, storyId: 50, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1127, storyId: 50, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1128, storyId: 50, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1129, storyId: 51, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1130, storyId: 51, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1131, storyId: 51, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1132, storyId: 51, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1133, storyId: 51, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1134, storyId: 51, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1135, storyId: 51, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1136, storyId: 51, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1137, storyId: 51, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1138, storyId: 51, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1139, storyId: 51, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1140, storyId: 51, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1141, storyId: 52, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1142, storyId: 52, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1143, storyId: 52, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1144, storyId: 52, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1145, storyId: 52, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1146, storyId: 52, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1147, storyId: 52, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1148, storyId: 52, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1149, storyId: 52, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1150, storyId: 52, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1151, storyId: 52, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1152, storyId: 52, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1153, storyId: 53, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1154, storyId: 53, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1155, storyId: 53, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1156, storyId: 53, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1157, storyId: 53, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1158, storyId: 53, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1159, storyId: 53, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1160, storyId: 53, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1161, storyId: 53, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1162, storyId: 53, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1163, storyId: 53, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1164, storyId: 53, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1165, storyId: 54, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1166, storyId: 54, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1167, storyId: 54, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1168, storyId: 54, category: "phonics", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1169, storyId: 54, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1170, storyId: 54, category: "inference", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1171, storyId: 54, category: "context", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1172, storyId: 54, category: "summary", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 0, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1173, storyId: 54, category: "grammar", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1174, storyId: 54, category: "vocab", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 1, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1175, storyId: 54, category: "story", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 3, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
-            { id: 1176, storyId: 54, category: "theme", type: "multiple", question: "Question about the story content.", options: ["First option", "Second option", "Third option", "Fourth option"], correct: 2, hint: "Think about what you read in the story.", explanation: "Excellent! You understood the story well!", incorrectFeedback: "Read the story again and look for clues." },
+            { id: 1033, storyId: 43, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["Monster trucks are big and fun", "Trucks carry food", "Trucks are slow", "Trucks are scary"], correct: 0, hint: "Think about what the story says about the truck.", explanation: "The story is all about how monster trucks are big and fun!" },
+            { id: 1034, storyId: 43, category: "story", type: "multiple", question: "What can the truck do?", options: ["Swim", "Jump", "Fly", "Hide"], correct: 1, hint: "The story tells us what the truck can do.", explanation: "The story says the truck can jump!" },
+            { id: 1035, storyId: 43, category: "vocab", type: "multiple", question: "What does 'crash' mean?", options: ["A loud bang when things hit", "A soft sound", "A color", "A kind of food"], correct: 0, hint: "Think about the loud sounds the truck makes.", explanation: "Crash means a loud bang when things hit together!" },
+            { id: 1036, storyId: 43, category: "phonics", type: "multiple", question: "What sound does 'truck' start with?", options: ["/tr/", "/ch/", "/th/", "/st/"], correct: 0, hint: "Say 'truck' slowly. What do you hear first?", explanation: "Truck starts with the /tr/ sound!" },
+            { id: 1037, storyId: 43, category: "inference", type: "multiple", question: "Where would you see a monster truck?", options: ["In a kitchen", "In a bedroom", "At a monster truck show", "In a bathtub"], correct: 2, hint: "Where do big trucks jump and crash?", explanation: "You would see monster trucks at a show where they jump and crash!" },
+            { id: 1038, storyId: 43, category: "inference", type: "multiple", question: "Why does the story say 'Crash! Smash!'?", options: ["To show the truck is loud and exciting", "The truck is broken", "The truck is sleeping", "The truck is lost"], correct: 0, hint: "How does the truck sound?", explanation: "Crash and Smash show us the truck is loud and exciting!" },
+            { id: 1039, storyId: 43, category: "context", type: "multiple", question: "In the story, 'It has big wheels.' What does 'it' mean?", options: ["A car", "A bike", "The truck", "A ball"], correct: 2, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the truck because that is what the story is about!" },
+            { id: 1040, storyId: 43, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["A big monster truck has big wheels, can jump, and is loud and fun", "A truck goes to the store", "A small truck is quiet", "A truck gets lost"], correct: 0, hint: "Think about what happens in the whole story.", explanation: "The story tells us the truck is big, can jump, and is loud and fun!" },
+            { id: 1041, storyId: 43, category: "grammar", type: "multiple", question: "Which word in the story tells about size?", options: ["Loud", "Jump", "Look", "Big"], correct: 3, hint: "Which word tells us how large something is?", explanation: "Big is the word that tells us about size!" },
+            { id: 1042, storyId: 43, category: "vocab", type: "multiple", question: "What does 'smash' mean?", options: ["To sing", "To sleep", "To eat", "To hit something very hard"], correct: 3, hint: "It is like crash. Think about loud hitting sounds.", explanation: "Smash means to hit something very hard!" },
+            { id: 1043, storyId: 43, category: "story", type: "multiple", question: "How does the person in the story feel about monster trucks?", options: ["Sad", "Scared", "Angry", "They like them"], correct: 3, hint: "What does the last sentence say?", explanation: "The story says 'I like monster trucks!' so they love them!" },
+            { id: 1044, storyId: 43, category: "theme", type: "multiple", question: "What makes monster trucks special in this story?", options: ["They are small", "They are big, loud, and can jump", "They are quiet", "They are slow"], correct: 1, hint: "Think about all the cool things the story says about the truck.", explanation: "Monster trucks are special because they are big, loud, and can jump!" },
+            { id: 1045, storyId: 44, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A slow boat", "A big bus", "A fast rocket that goes to space", "A little airplane"], correct: 2, hint: "Think about what the story tells us about the rocket.", explanation: "The story is all about a fast rocket that goes up to space!" },
+            { id: 1046, storyId: 44, category: "story", type: "multiple", question: "Where does the rocket go?", options: ["To the park", "Under the water", "To space", "To school"], correct: 2, hint: "The story says the rocket goes somewhere very high.", explanation: "The rocket goes to space!" },
+            { id: 1047, storyId: 44, category: "vocab", type: "multiple", question: "What does 'fast' mean?", options: ["Very slow", "Very quick", "Very big", "Very small"], correct: 1, hint: "The rocket moves in a hurry. What word means that?", explanation: "Fast means very quick, like the rocket zooming up!" },
+            { id: 1048, storyId: 44, category: "phonics", type: "multiple", question: "What word rhymes with 'space'?", options: ["Spot", "Spin", "Race", "Star"], correct: 2, hint: "Which word ends with the same sound as space?", explanation: "Race rhymes with space because they both end in -ace!" },
+            { id: 1049, storyId: 44, category: "inference", type: "multiple", question: "Why does the story say 'Zoom!'?", options: ["The rocket is quiet", "The rocket moves very fast", "The rocket stops", "The rocket is broken"], correct: 1, hint: "What sound does something fast make?", explanation: "Zoom shows us the rocket is moving very fast!" },
+            { id: 1050, storyId: 44, category: "inference", type: "multiple", question: "How does the person in the story feel about the rocket?", options: ["Sad", "Bored", "They think it is cool", "Angry"], correct: 2, hint: "What does the last sentence say?", explanation: "The story says 'The rocket is cool!' so they think it is awesome!" },
+            { id: 1051, storyId: 44, category: "context", type: "multiple", question: "In the story, 'It goes up, up, up!' What does 'it' mean?", options: ["A ball", "A bird", "A kite", "The rocket"], correct: 3, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the rocket because the story is about the rocket!" },
+            { id: 1052, storyId: 44, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["A fast rocket goes up to space and it is cool", "A rocket breaks down", "A rocket is slow", "A rocket stays on the ground"], correct: 0, hint: "Think about what happens in the whole story.", explanation: "The story tells us a fast rocket zooms up to space and is cool!" },
+            { id: 1053, storyId: 44, category: "grammar", type: "multiple", question: "In 'It goes up, up, up!' why is 'up' said three times?", options: ["It is a mistake", "The rocket is going down", "To show the rocket keeps going higher and higher", "The rocket stopped"], correct: 2, hint: "Think about what repeating a word does.", explanation: "Saying 'up' three times shows the rocket keeps going higher and higher!" },
+            { id: 1054, storyId: 44, category: "vocab", type: "multiple", question: "What is 'space'?", options: ["A room in a house", "The area far above Earth where stars are", "A kind of food", "A park"], correct: 1, hint: "The rocket goes way up high to get there.", explanation: "Space is the area far above Earth where stars and planets are!" },
+            { id: 1055, storyId: 44, category: "story", type: "multiple", question: "What is the rocket like?", options: ["It is fast", "It is slow", "It is tiny", "It is broken"], correct: 0, hint: "The story uses a word to describe how the rocket moves.", explanation: "The story says the rocket is fast!" },
+            { id: 1056, storyId: 44, category: "theme", type: "multiple", question: "What makes the rocket exciting in this story?", options: ["It is fast and goes all the way to space", "It is slow", "It stays still", "It is old"], correct: 0, hint: "Think about what the rocket does that is so cool.", explanation: "The rocket is exciting because it is fast and goes all the way to space!" },
+            { id: 1057, storyId: 45, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A sad toy", "A broken toy", "A green ball", "A fun red robot"], correct: 3, hint: "Think about what the story tells us about the robot.", explanation: "The story is all about a fun red robot!" },
+            { id: 1058, storyId: 45, category: "story", type: "multiple", question: "What can the robot do?", options: ["Fly and swim", "Jump and run", "Walk and talk", "Cook and clean"], correct: 2, hint: "The story tells us two things the robot can do.", explanation: "The robot can walk and talk!" },
+            { id: 1059, storyId: 45, category: "vocab", type: "multiple", question: "What is a 'robot'?", options: ["A kind of animal", "A kind of food", "A machine that can move and do things", "A kind of plant"], correct: 2, hint: "Think about what the robot does in the story.", explanation: "A robot is a machine that can move and do things!" },
+            { id: 1060, storyId: 45, category: "phonics", type: "multiple", question: "What sound does 'red' start with?", options: ["/r/", "/b/", "/d/", "/t/"], correct: 0, hint: "Say 'red' slowly. What do you hear first?", explanation: "Red starts with the /r/ sound!" },
+            { id: 1061, storyId: 45, category: "inference", type: "multiple", question: "Why does the story say 'Beep, beep!'?", options: ["That is the sound the robot makes", "The robot is sad", "The robot is sleeping", "The robot is broken"], correct: 0, hint: "What kind of sounds do robots make?", explanation: "Beep, beep is the sound the robot makes!" },
+            { id: 1062, storyId: 45, category: "inference", type: "multiple", question: "How does the person feel about the robot?", options: ["Scared of it", "They think it is fun", "Mad at it", "Bored with it"], correct: 1, hint: "What does the last sentence say?", explanation: "The story says 'My robot is fun!' so they love playing with it!" },
+            { id: 1063, storyId: 45, category: "context", type: "multiple", question: "In the story, 'It is red.' What does 'it' mean?", options: ["The robot", "A ball", "A car", "A crayon"], correct: 0, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the robot because the story says 'I have a robot' right before!" },
+            { id: 1064, storyId: 45, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["Someone has a red robot that beeps, walks, talks, and is fun", "A robot is broken and sad", "A robot runs away", "A blue robot flies"], correct: 0, hint: "Think about what happens in the whole story.", explanation: "The story tells us about a red robot that beeps, walks, talks, and is fun!" },
+            { id: 1065, storyId: 45, category: "grammar", type: "multiple", question: "In 'My robot can walk,' what does the word 'can' tell us?", options: ["The robot is big", "The robot is red", "The robot is able to do something", "The robot is old"], correct: 2, hint: "What does 'can' mean before a doing word?", explanation: "The word 'can' means the robot is able to walk!" },
+            { id: 1066, storyId: 45, category: "vocab", type: "multiple", question: "What does 'talk' mean?", options: ["To run fast", "To eat food", "To say words", "To go to sleep"], correct: 2, hint: "What do you do with your mouth when you use words?", explanation: "Talk means to say words, just like the robot can!" },
+            { id: 1067, storyId: 45, category: "story", type: "multiple", question: "What color is the robot?", options: ["Blue", "Red", "Green", "Yellow"], correct: 1, hint: "The story tells us the color of the robot.", explanation: "The story says the robot is red!" },
+            { id: 1068, storyId: 45, category: "theme", type: "multiple", question: "Why is the robot a good toy?", options: ["It is very big", "It is very small", "It is broken", "It can walk and talk and is fun"], correct: 3, hint: "Think about all the things the robot can do.", explanation: "The robot is a good toy because it can walk, talk, and is fun!" },
+            { id: 1069, storyId: 46, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A slow bike", "A big boat", "A red truck", "A fast, cool car"], correct: 3, hint: "Think about what the story tells us about the car.", explanation: "The story is all about a fast, cool car!" },
+            { id: 1070, storyId: 46, category: "story", type: "multiple", question: "What color is the car?", options: ["Red", "Blue", "Green", "Yellow"], correct: 1, hint: "The story tells us the color of the car.", explanation: "The story says the car is blue!" },
+            { id: 1071, storyId: 46, category: "vocab", type: "multiple", question: "What does 'vroom' mean?", options: ["A quiet sound", "A color", "A kind of food", "The sound a car makes when it goes fast"], correct: 3, hint: "Think about the sound a fast car makes.", explanation: "Vroom is the sound a car makes when it goes fast!" },
+            { id: 1072, storyId: 46, category: "phonics", type: "multiple", question: "What word rhymes with 'car'?", options: ["Cat", "Cup", "Star", "Can"], correct: 2, hint: "Which word ends with the same sound as car?", explanation: "Star rhymes with car because they both end in -ar!" },
+            { id: 1073, storyId: 46, category: "inference", type: "multiple", question: "Why does the story say 'Vroom, vroom!'?", options: ["The car is broken", "The car is sleeping", "The car is quiet", "The car is going fast and making noise"], correct: 3, hint: "What happens when a car goes fast?", explanation: "Vroom, vroom shows us the car is going fast and making noise!" },
+            { id: 1074, storyId: 46, category: "inference", type: "multiple", question: "How does the person in the story feel about cars?", options: ["They think cars are cool", "They are scared of cars", "They do not like cars", "They are sad about cars"], correct: 0, hint: "What does the last sentence say?", explanation: "The story says 'Cars are cool!' so they really like them!" },
+            { id: 1075, storyId: 46, category: "context", type: "multiple", question: "In the story, 'It is fast.' What does 'it' mean?", options: ["A bus", "The car", "A bike", "A train"], correct: 1, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the car because the story says 'I see a car' right before!" },
+            { id: 1076, storyId: 46, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["A car is broken and old", "A car cannot go", "A car is very slow", "Someone sees a fast blue car that goes vroom and cars are cool"], correct: 3, hint: "Think about what happens in the whole story.", explanation: "The story tells us about a fast blue car that goes vroom and is cool!" },
+            { id: 1077, storyId: 46, category: "grammar", type: "multiple", question: "In 'The car can go,' what does 'can' tell us?", options: ["The car is big", "The car is old", "The car is blue", "The car is able to go"], correct: 3, hint: "What does 'can' mean before a doing word?", explanation: "The word 'can' means the car is able to go!" },
+            { id: 1078, storyId: 46, category: "vocab", type: "multiple", question: "What does 'cool' mean in this story?", options: ["Very cold", "A little warm", "Not nice", "Really great and fun"], correct: 3, hint: "The person thinks cars are awesome. What word means that?", explanation: "Cool means really great and fun in this story!" },
+            { id: 1079, storyId: 46, category: "story", type: "multiple", question: "What is the car like in this story?", options: ["Slow and old", "Fast", "Broken", "Tiny"], correct: 1, hint: "The story uses a word to tell us how the car moves.", explanation: "The story says the car is fast!" },
+            { id: 1080, storyId: 46, category: "theme", type: "multiple", question: "What makes the car exciting in this story?", options: ["It is very old", "It is broken", "It is very slow", "It is fast and goes vroom"], correct: 3, hint: "Think about what the car does that is so cool.", explanation: "The car is exciting because it is fast and goes vroom!" },
+            { id: 1081, storyId: 47, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A boy who likes to sleep", "A boy who tries a skateboard trick", "A boy who plays with a ball", "A boy who goes to school"], correct: 1, hint: "Think about what Jake does at the park.", explanation: "The story is about Jake trying a skateboard trick!" },
+            { id: 1082, storyId: 47, category: "story", type: "multiple", question: "Where does Jake ride his skateboard?", options: ["To school", "To the store", "To the park", "To his house"], correct: 2, hint: "The story says where Jake rides to.", explanation: "Jake rides his skateboard to the park!" },
+            { id: 1083, storyId: 47, category: "vocab", type: "multiple", question: "What does 'trick' mean in this story?", options: ["A joke on someone", "A special move on a skateboard", "A magic show", "A test at school"], correct: 1, hint: "Think about what Jake does on his skateboard.", explanation: "A trick is a special move you do on a skateboard!" },
+            { id: 1084, storyId: 47, category: "phonics", type: "multiple", question: "Which word from the story rhymes with 'bed'?", options: ["red", "park", "trick", "new"], correct: 0, hint: "Say each word out loud. Which one sounds like 'bed' at the end?", explanation: "'Red' rhymes with 'bed' - they both end in the '-ed' sound!" },
+            { id: 1085, storyId: 47, category: "inference", type: "multiple", question: "Why did Jake fall down?", options: ["The trick was hard to do", "He was scared", "His skateboard broke", "It was raining"], correct: 0, hint: "Jake was trying something new. Why might that be hard?", explanation: "Jake fell because the new trick was hard to do!" },
+            { id: 1086, storyId: 47, category: "inference", type: "multiple", question: "How do you know Jake is brave?", options: ["He has a new skateboard", "He has many friends", "He rides very fast", "He tries again after falling"], correct: 3, hint: "What does Jake do after he falls?", explanation: "Jake is brave because he gets up and tries again after falling!" },
+            { id: 1087, storyId: 47, category: "context", type: "multiple", question: "In the story, 'His friends cheer for him.' What does 'cheer' mean?", options: ["To cry", "To run away", "To be quiet", "To shout happily"], correct: 3, hint: "Jake just did his trick. How would his friends feel?", explanation: "'Cheer' means to shout happily because Jake did it!" },
+            { id: 1088, storyId: 47, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Jake has a red skateboard.", "Jake goes to the park every day.", "Jake falls and tries again until he does a skateboard trick.", "Jake and his friends play at school."], correct: 2, hint: "Think about the whole story from start to end.", explanation: "The story is about Jake trying, falling, and finally doing his trick!" },
+            { id: 1089, storyId: 47, category: "grammar", type: "multiple", question: "In 'Jake rides to the park,' which word is the VERB (action word)?", options: ["Jake", "park", "rides", "the"], correct: 2, hint: "A verb is something you DO.", explanation: "'Rides' is the action word - it tells what Jake does!" },
+            { id: 1090, storyId: 47, category: "vocab", type: "multiple", question: "What does 'Ouch' mean in the story?", options: ["A happy word", "A greeting", "A sound you make when something hurts", "A way to say goodbye"], correct: 2, hint: "Jake says 'Ouch' after he falls down.", explanation: "'Ouch' is what you say when something hurts!" },
+            { id: 1091, storyId: 47, category: "story", type: "multiple", question: "What color is Jake's skateboard?", options: ["Black and red", "Blue and green", "Red and white", "Black and blue"], correct: 0, hint: "The story tells you the colors of the skateboard.", explanation: "Jake's skateboard is black and red!" },
+            { id: 1092, storyId: 47, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["Skateboards are dangerous", "Parks are fun to visit", "Friends are not important", "Keep trying even when things are hard"], correct: 3, hint: "What did Jake do after he fell?", explanation: "The story teaches us to keep trying, even when we fall!" },
+            { id: 1093, storyId: 48, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["How to dig holes", "How to build a museum", "Learning about dinosaurs from their bones", "How animals live today"], correct: 2, hint: "Think about what the whole story tells us.", explanation: "The story is about learning about dinosaurs from their bones!" },
+            { id: 1094, storyId: 48, category: "story", type: "multiple", question: "Who finds dinosaur bones in the ground?", options: ["Scientists", "Teachers", "Children", "Farmers"], correct: 0, hint: "The story tells who digs up the bones.", explanation: "Scientists find dinosaur bones in the ground!" },
+            { id: 1095, storyId: 48, category: "vocab", type: "multiple", question: "What does 'scientists' mean in this story?", options: ["People who cook food", "People who study and learn about things", "People who build houses", "People who drive buses"], correct: 1, hint: "Scientists find bones and learn about dinosaurs.", explanation: "Scientists are people who study and learn about things!" },
+            { id: 1096, storyId: 48, category: "phonics", type: "multiple", question: "Which word from the story has the long 'o' sound like in 'bone'?", options: ["bones", "big", "dig", "ground"], correct: 0, hint: "Say each word. Which one has the same sound as 'bone'?", explanation: "'Bones' has the long 'o' sound, just like 'bone'!" },
+            { id: 1097, storyId: 48, category: "inference", type: "multiple", question: "Why do scientists dig up bones carefully?", options: ["Because they are in a hurry", "Because the bones are not important", "Because they want to break them", "Because the bones could break if they are not careful"], correct: 3, hint: "The bones are very old. What might happen if you are rough with them?", explanation: "Scientists are careful because old bones can break easily!" },
+            { id: 1098, storyId: 48, category: "inference", type: "multiple", question: "Why can we see dinosaur bones in museums?", options: ["Because dinosaurs live there", "Because scientists brought the bones there for people to see", "Because museums are underground", "Because bones grow in museums"], correct: 1, hint: "Think about what happens after scientists dig up the bones.", explanation: "Scientists bring the bones to museums so everyone can see them!" },
+            { id: 1099, storyId: 48, category: "context", type: "multiple", question: "In the story, 'They dig them up carefully.' What does 'carefully' mean?", options: ["Very fast", "Being very gentle and slow", "With a big machine", "Without looking"], correct: 1, hint: "The bones are old and could break. How would you handle them?", explanation: "'Carefully' means being gentle and slow so nothing breaks!" },
+            { id: 1100, storyId: 48, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Scientists find dinosaur bones and we can learn about dinosaurs from them.", "Dinosaurs are still alive today.", "Museums are big buildings.", "Scientists like to dig holes."], correct: 0, hint: "Think about the main idea of the whole story.", explanation: "The story tells us that scientists find bones and we learn about dinosaurs!" },
+            { id: 1101, storyId: 48, category: "grammar", type: "multiple", question: "In 'They were very big,' which word is an ADJECTIVE (describing word)?", options: ["big", "They", "were", "very"], correct: 0, hint: "An adjective describes what something is like.", explanation: "'Big' is the adjective - it describes the dinosaurs!" },
+            { id: 1102, storyId: 48, category: "vocab", type: "multiple", question: "What does 'amazing' mean in the story?", options: ["Boring", "Scary", "Small", "Wonderful and interesting"], correct: 3, hint: "The story says 'Dinosaurs are amazing!' How does the author feel about them?", explanation: "'Amazing' means wonderful and interesting!" },
+            { id: 1103, storyId: 48, category: "story", type: "multiple", question: "What happened to the dinosaurs?", options: ["They are still here", "They are gone now", "They moved to the ocean", "They got very small"], correct: 1, hint: "The story says something happened to the dinosaurs long ago.", explanation: "The dinosaurs are gone now - they lived long ago!" },
+            { id: 1104, storyId: 48, category: "theme", type: "multiple", question: "What can we learn from this story?", options: ["Digging is fun", "Museums are boring", "We can learn about the past by studying bones", "Dinosaurs were small"], correct: 2, hint: "What do the bones help us understand?", explanation: "We can learn about the past by studying dinosaur bones!" },
+            { id: 1105, storyId: 49, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A boy who plays outside", "A boy who does homework", "A boy who watches TV", "A boy who works hard and wins a gaming tournament"], correct: 3, hint: "Think about what Marcus does in the story.", explanation: "The story is about Marcus practicing hard and winning the tournament!" },
+            { id: 1106, storyId: 49, category: "story", type: "multiple", question: "When was the big tournament?", options: ["On Monday", "On Friday", "After school", "On Saturday"], correct: 3, hint: "The story tells you which day the tournament was.", explanation: "The big tournament was on Saturday!" },
+            { id: 1107, storyId: 49, category: "vocab", type: "multiple", question: "What does 'tournament' mean in this story?", options: ["A competition where people play against each other", "A type of video game", "A school test", "A birthday party"], correct: 0, hint: "Many kids came to play and try to win.", explanation: "A tournament is a competition where people play against each other!" },
+            { id: 1108, storyId: 49, category: "phonics", type: "multiple", question: "Which word from the story has the same ending sound as 'best'?", options: ["first", "game", "play", "huge"], correct: 0, hint: "Say each word. Which one ends with the same sound as 'best'?", explanation: "'First' ends with the same '-st' sound as 'best'!" },
+            { id: 1109, storyId: 49, category: "inference", type: "multiple", question: "Why was Marcus nervous on tournament day?", options: ["He forgot his game", "He was tired", "He did not practice", "He really wanted to win and there were many kids competing"], correct: 3, hint: "Marcus practiced every day. How would he feel with twenty kids competing?", explanation: "Marcus was nervous because he wanted to win and there were many competitors!" },
+            { id: 1110, storyId: 49, category: "inference", type: "multiple", question: "Why did Marcus practice every day after school?", options: ["His mom told him to", "He wanted to get better so he could win the tournament", "He had nothing else to do", "His friends made him"], correct: 1, hint: "Think about what Marcus wanted to do on Saturday.", explanation: "Marcus practiced every day because he wanted to win the big tournament!" },
+            { id: 1111, storyId: 49, category: "context", type: "multiple", question: "In the story, 'He learned all the best moves and secret levels.' What does 'secret' mean here?", options: ["Easy to find", "Broken", "Hidden and not easy to find", "Loud"], correct: 2, hint: "If something is secret, not everyone knows about it.", explanation: "'Secret' means hidden and not easy to find - these were special levels!" },
+            { id: 1112, storyId: 49, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Marcus likes to play video games after school.", "Marcus practiced hard, entered a gaming tournament, and won first place.", "Marcus was nervous about a test.", "Marcus got a trophy from his teacher."], correct: 1, hint: "Think about the whole story from beginning to end.", explanation: "The story is about Marcus practicing, competing, and winning first place!" },
+            { id: 1113, storyId: 49, category: "grammar", type: "multiple", question: "In 'Marcus practiced his video game every day,' which word is the VERB (action word)?", options: ["practiced", "Marcus", "game", "every"], correct: 0, hint: "A verb is an action - something you DO.", explanation: "'Practiced' is the verb - it tells what Marcus did!" },
+            { id: 1114, storyId: 49, category: "vocab", type: "multiple", question: "What does 'competing' mean in this story?", options: ["Watching a show", "Trying to win against other people", "Eating lunch", "Going home"], correct: 1, hint: "Twenty kids were competing in the tournament.", explanation: "'Competing' means trying to win against other people!" },
+            { id: 1115, storyId: 49, category: "story", type: "multiple", question: "How many kids were in the tournament?", options: ["Ten", "Twenty", "Thirty", "Five"], correct: 1, hint: "The story tells you the exact number of kids.", explanation: "There were twenty kids competing in the tournament!" },
+            { id: 1116, storyId: 49, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["Video games are bad for you", "Winning is the only thing that matters", "You should never be nervous", "Hard work and practice can help you succeed"], correct: 3, hint: "Think about what Marcus did before the tournament and what happened.", explanation: "The story teaches that hard work and practice can help you succeed!" },
+            { id: 1117, storyId: 50, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["How airplanes fly", "How cars are made", "How bridges are built", "How rockets work and go to space"], correct: 3, hint: "Think about what the whole story explains.", explanation: "The story is about how rockets work and go to space!" },
+            { id: 1118, storyId: 50, category: "story", type: "multiple", question: "What do rockets burn to create hot gases?", options: ["Wood", "Fuel", "Water", "Paper"], correct: 1, hint: "The story tells what rockets burn.", explanation: "Rockets burn fuel very fast to create hot gases!" },
+            { id: 1119, storyId: 50, category: "vocab", type: "multiple", question: "What does 'gravity' mean in this story?", options: ["The force that pulls things down to Earth", "A type of fuel", "A part of a rocket", "A kind of satellite"], correct: 0, hint: "Rockets must go very fast to escape it.", explanation: "Gravity is the force that pulls things down to Earth!" },
+            { id: 1120, storyId: 50, category: "phonics", type: "multiple", question: "Which word from the story rhymes with 'space'?", options: ["smart", "fast", "place", "force"], correct: 2, hint: "Say each word. Which one ends with the same sound as 'space'?", explanation: "'Place' rhymes with 'space' - they both end in the '-ace' sound!" },
+            { id: 1121, storyId: 50, category: "inference", type: "multiple", question: "Why must rockets go very fast?", options: ["To make loud noises", "To escape Earth's gravity pulling them back down", "To look cool", "To save fuel"], correct: 1, hint: "Think about what gravity does and why rockets need speed.", explanation: "Rockets must go fast to escape gravity, which pulls them back to Earth!" },
+            { id: 1122, storyId: 50, category: "inference", type: "multiple", question: "Why does building rockets take many years?", options: ["Because rockets are very complicated machines that need smart engineers", "Because nobody wants to build them", "Because there are not enough parts", "Because rockets are very small"], correct: 0, hint: "Think about how powerful and complicated rockets are.", explanation: "Rockets are very complicated, so it takes many years of work by smart engineers!" },
+            { id: 1123, storyId: 50, category: "context", type: "multiple", question: "In the story, 'These gases shoot out the bottom with great force.' What does 'force' mean?", options: ["A quiet sound", "A small push", "A bright color", "A strong push or power"], correct: 3, hint: "The gases push the rocket up. How strong must that push be?", explanation: "'Force' means a strong push or power - it pushes the rocket up!" },
+            { id: 1124, storyId: 50, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Rockets are painted red.", "Astronauts like to eat in space.", "Engineers go to school for a long time.", "Rockets burn fuel to create force that pushes them into space."], correct: 3, hint: "Think about the main idea of the whole story.", explanation: "The story explains how rockets burn fuel to create force and go to space!" },
+            { id: 1125, storyId: 50, category: "grammar", type: "multiple", question: "In 'Rockets are powerful machines,' which word is an ADJECTIVE (describing word)?", options: ["Rockets", "are", "powerful", "machines"], correct: 2, hint: "An adjective describes what something is like.", explanation: "'Powerful' is the adjective - it describes the machines!" },
+            { id: 1126, storyId: 50, category: "vocab", type: "multiple", question: "What does 'satellites' mean in this story?", options: ["A type of fuel", "A kind of airplane", "Objects sent into space that go around Earth", "Big trucks"], correct: 2, hint: "Scientists use rockets to launch them into space.", explanation: "Satellites are objects sent into space that go around Earth!" },
+            { id: 1127, storyId: 50, category: "story", type: "multiple", question: "How fast must rockets travel to escape Earth's gravity?", options: ["Over 25,000 miles per hour", "Over 100 miles per hour", "Over 1,000 miles per hour", "Over 500 miles per hour"], correct: 0, hint: "The story gives an exact speed.", explanation: "Rockets must travel at over 25,000 miles per hour!" },
+            { id: 1128, storyId: 50, category: "theme", type: "multiple", question: "What can we learn from this story?", options: ["Rockets use science and engineering to travel to space", "Space is very cold", "Astronauts wear helmets", "Fuel is expensive"], correct: 0, hint: "Think about what the story teaches us about rockets.", explanation: "We learn that rockets use science and engineering to travel to space!" },
+            // Story 51: The Championship Game (Level D, fiction)
+            { id: 1129, storyId: 51, category: "theme", type: "multiple", question: "What is the main lesson of this story?", options: ["Soccer is too hard for kids", "Hard work and teamwork can make dreams come true", "Winning is the only thing that matters", "You should never feel tired"], correct: 1, hint: "What did Ahmad learn at the end?", explanation: "Ahmad learned that hard work, teamwork, and never giving up can make dreams come true!", wrongFeedback: ["Ahmad loved playing soccer.", "", "The story also talks about teamwork.", "Everyone gets tired sometimes."] },
+            { id: 1130, storyId: 51, category: "theme", type: "multiple", question: "What did Ahmad's coach teach him?", options: ["To always score goals", "To run faster than everyone", "That champions are made in the last five minutes", "To never pass the ball"], correct: 2, hint: "Think about what the coach said about champions.", explanation: "The coach taught that champions are made in the last five minutes of a game!", wrongFeedback: ["The coach's lesson was about not giving up.", "The coach talked about being a champion.", "", "Hassan passed the ball to Ahmad."] },
+            { id: 1131, storyId: 51, category: "story", type: "multiple", question: "What was the score before Ahmad scored his goal?", options: ["1-1", "3-2", "2-2", "0-0"], correct: 2, hint: "The teams were tied. What was the score?", explanation: "The story says the teams were tied 2-2!", wrongFeedback: ["The score was higher than that.", "That would not be a tie.", "", "They had already scored some goals."] },
+            { id: 1132, storyId: 51, category: "story", type: "multiple", question: "Who passed the ball to Ahmad?", options: ["The coach", "The goalkeeper", "A player from the other team", "Hassan"], correct: 3, hint: "Which teammate helped Ahmad score?", explanation: "Hassan kicked the ball perfectly to Ahmad!", wrongFeedback: ["The coach was on the sideline.", "The goalkeeper was on the other team.", "It was Ahmad's own teammate.", ""] },
+            { id: 1133, storyId: 51, category: "vocab", type: "multiple", question: "What does 'erupted' mean in 'The crowd erupted in cheers'?", options: ["Became quiet", "Suddenly burst out loudly", "Left the game", "Sat down"], correct: 1, hint: "How did the crowd react when Ahmad scored?", explanation: "Erupted means they suddenly burst out with loud cheers!", wrongFeedback: ["The crowd was excited, not quiet.", "", "They stayed to celebrate.", "They were jumping and cheering."] },
+            { id: 1134, storyId: 51, category: "vocab", type: "multiple", question: "What does 'sprinted' mean in the story?", options: ["Walked slowly", "Stopped moving", "Ran very fast", "Fell down"], correct: 2, hint: "Ahmad needed to get to the ball quickly.", explanation: "Sprinted means to run very fast!", wrongFeedback: ["He needed to be quick.", "He kept moving forward.", "", "He stayed on his feet."] },
+            { id: 1135, storyId: 51, category: "phonics", type: "multiple", question: "Which word from the story rhymes with 'right'?", options: ["Tired", "Might", "Fast", "Left"], correct: 1, hint: "Think about words that end with the same sound as 'right'.", explanation: "'Right' and 'might' both end with the '-ight' sound!", wrongFeedback: ["Tired ends with a different sound.", "", "Fast ends with '-ast'.", "Left ends with '-eft'."] },
+            { id: 1136, storyId: 51, category: "inference", type: "multiple", question: "Why did Ahmad fake left before shooting?", options: ["He was confused", "To trick the goalkeeper", "He hurt his left foot", "He wanted to pass instead"], correct: 1, hint: "What would faking a move do to the goalkeeper?", explanation: "Ahmad faked left to trick the goalkeeper into moving the wrong way!", wrongFeedback: ["Ahmad knew exactly what he was doing.", "", "He shot with his right foot on purpose.", "He was trying to score."] },
+            { id: 1137, storyId: 51, category: "inference", type: "truefalse", question: "Ahmad scored the winning goal easily without trying hard.", correct: 1, hint: "Was Ahmad tired? Did he have to sprint?", explanation: "False! Ahmad's legs were tired but he sprinted forward and made a tricky shot.", wrongFeedback: ["", "He was tired and had to work hard to score."] },
+            { id: 1138, storyId: 51, category: "context", type: "multiple", question: "In the story, what does 'controlled it' mean when Ahmad got the ball?", options: ["Kicked it away", "Stopped it neatly so he could use it", "Threw it", "Passed it back to Hassan"], correct: 1, hint: "What did Ahmad do with the ball right before he faked left?", explanation: "Controlled means he stopped the ball skillfully so he could shoot!", wrongFeedback: ["He kept the ball close.", "", "You cannot throw in soccer.", "He was getting ready to shoot."] },
+            { id: 1139, storyId: 51, category: "summary", type: "multiple", question: "Which sentence best tells what happens in this story?", options: ["A boy quits soccer because he is tired", "Ahmad scores the winning goal in the championship game", "Hassan wins the game all by himself", "The other team wins the match"], correct: 1, hint: "Think about the most important thing that happened.", explanation: "Ahmad scores the winning goal to help his team win the championship!", wrongFeedback: ["Ahmad never gave up.", "", "Hassan helped but Ahmad scored.", "Ahmad's team won."] },
+            { id: 1140, storyId: 51, category: "grammar", type: "multiple", question: "In 'Ahmad's legs felt tired,' what is the verb?", options: ["Ahmad's", "legs", "felt", "tired"], correct: 2, hint: "Which word tells what happened?", explanation: "'Felt' is the verb because it tells what Ahmad's legs did!", wrongFeedback: ["That shows who.", "That is a noun.", "", "That describes how they felt."] },
+            // Story 52: Building a Gaming Computer (Level F, fiction)
+            { id: 1141, storyId: 52, category: "theme", type: "multiple", question: "What is the main message of this story?", options: ["Computers are too hard for kids to build", "Understanding how things work gives you real knowledge and new interests", "Dads should build computers for their kids", "Gaming is the best hobby"], correct: 1, hint: "What happened to Kevin after building his computer?", explanation: "Kevin gained real understanding of computers and it sparked his interest in computer engineering!", wrongFeedback: ["Kevin built one successfully.", "", "Kevin did the work himself.", "The story is about learning, not just gaming."] },
+            { id: 1142, storyId: 52, category: "theme", type: "multiple", question: "Why did Kevin's dad make him understand how everything worked?", options: ["His dad did not know how to build it", "So Kevin could fix it if it broke", "So Kevin would truly learn and not just watch", "His dad wanted Kevin to fail"], correct: 2, hint: "What was the point of Kevin doing it himself?", explanation: "Kevin's dad wanted him to truly learn by doing it himself!", wrongFeedback: ["His dad agreed to help.", "That may be a bonus, but the main reason was learning.", "", "His dad was helping him succeed."] },
+            { id: 1143, storyId: 52, category: "story", type: "multiple", question: "How long did Kevin save money to build his computer?", options: ["Six months", "One year", "Three years", "Two years"], correct: 3, hint: "The story tells you how long Kevin saved.", explanation: "Kevin saved money for two years!", wrongFeedback: ["He saved longer than that.", "He saved even longer.", "Not quite that long.", ""] },
+            { id: 1144, storyId: 52, category: "story", type: "multiple", question: "Why did nothing happen when Kevin first pressed the power button?", options: ["The motherboard was broken", "He forgot to plug it in", "The graphics card was missing", "He forgot to flip the power supply switch"], correct: 3, hint: "Kevin's dad pointed to something Kevin forgot.", explanation: "Kevin forgot to flip the switch on the power supply!", wrongFeedback: ["Everything was installed correctly.", "It was plugged in.", "He installed the graphics card.", ""] },
+            { id: 1145, storyId: 52, category: "vocab", type: "multiple", question: "What is a 'component' in this story?", options: ["A type of computer game", "A computer store", "A part or piece of something", "A computer screen"], correct: 2, hint: "Kevin researched every component. What are motherboards and RAM?", explanation: "A component is a part or piece, like the motherboard, RAM, and graphics card!", wrongFeedback: ["Components are parts, not games.", "Not a store.", "", "A screen is one component, but the word means any part."] },
+            { id: 1146, storyId: 52, category: "vocab", type: "multiple", question: "What does 'thermal paste' help with in a computer?", options: ["Making the screen brighter", "Connecting to the internet", "Helping cool the processor by transferring heat", "Making the computer quieter"], correct: 2, hint: "Kevin applied it carefully to the processor. What does heat need?", explanation: "Thermal paste helps transfer heat away from the processor to keep it cool!", wrongFeedback: ["Nothing to do with the screen.", "Not related to internet.", "", "That is what fans do."] },
+            { id: 1147, storyId: 52, category: "phonics", type: "multiple", question: "How many syllables are in the word 'motherboard'?", options: ["Two", "Three", "Four", "One"], correct: 1, hint: "Clap it out: moth-er-board.", explanation: "Moth-er-board has three syllables!", wrongFeedback: ["More than two.", "", "Not that many.", "Much more than one."] },
+            { id: 1148, storyId: 52, category: "inference", type: "multiple", question: "Why did Kevin's hands shake when applying thermal paste?", options: ["He was cold", "He was angry", "He was nervous about making a mistake", "He was laughing"], correct: 2, hint: "Why would someone's hands shake while working with expensive parts?", explanation: "Kevin was nervous because he worried about bending a pin or making an error!", wrongFeedback: ["He was inside at the table.", "He was excited, not angry.", "", "This was serious work."] },
+            { id: 1149, storyId: 52, category: "inference", type: "multiple", question: "What career might Kevin choose when he grows up?", options: ["Professional soccer player", "Chef", "Computer engineer", "Doctor"], correct: 2, hint: "What interest did building the computer spark?", explanation: "The story says building the computer sparked his interest in computer engineering!", wrongFeedback: ["The story mentions computers.", "Nothing about cooking.", "", "The story points to technology."] },
+            { id: 1150, storyId: 52, category: "context", type: "multiple", question: "What does 'expansion slots' mean in 'taking up two expansion slots'?", options: ["Extra rooms in a house", "Spaces on the motherboard where parts plug in", "Slots on a game machine", "Openings in the computer case for air"], correct: 1, hint: "The graphics card plugged into the motherboard.", explanation: "Expansion slots are spaces on the motherboard where you add parts like graphics cards!", wrongFeedback: ["We are talking about computers.", "", "Not a game machine.", "Those are vents, not slots."] },
+            { id: 1151, storyId: 52, category: "summary", type: "multiple", question: "Which best summarizes this story?", options: ["Kevin buys a computer from a store", "Kevin's dad builds a computer for him", "Kevin breaks his computer and has to fix it", "Kevin saves money, builds a gaming computer with his dad's help, and discovers a new passion"], correct: 3, hint: "Think about the whole story from start to finish.", explanation: "Kevin saved up, built the computer himself, and found a new career interest!", wrongFeedback: ["He built it, not bought it.", "Kevin did the building.", "It worked on the first real try.", ""] },
+            { id: 1152, storyId: 52, category: "grammar", type: "multiple", question: "In 'The computer whirred to life,' what is the subject?", options: ["whirred", "life", "to", "The computer"], correct: 3, hint: "What is doing the action?", explanation: "'The computer' is the subject because it is what whirred to life!", wrongFeedback: ["That is the verb.", "That is part of the phrase.", "That is a preposition.", ""] },
+            // Story 53: Extreme Weather: Hurricanes (Level H, nonfiction)
+            { id: 1153, storyId: 53, category: "theme", type: "multiple", question: "What is the main idea of this passage?", options: ["Hurricanes only happen in one place", "Hurricanes are powerful storms and scientists work to understand and track them", "Hurricanes are getting weaker over time", "There is no way to prepare for hurricanes"], correct: 1, hint: "What does the passage explain about hurricanes?", explanation: "The passage explains how hurricanes form, how powerful they are, and how scientists track them!", wrongFeedback: ["They form over warm oceans near the equator.", "", "Scientists worry they may get stronger.", "Warning systems help people evacuate."] },
+            { id: 1154, storyId: 53, category: "theme", type: "multiple", question: "Why does the author mention climate change at the end?", options: ["To say hurricanes will stop happening", "To explain that hurricanes are not dangerous", "To warn that hurricanes may become more frequent and intense", "To say scientists have solved the problem"], correct: 2, hint: "What do scientists worry about?", explanation: "Scientists worry that rising ocean temperatures may cause more frequent and intense hurricanes!", wrongFeedback: ["Hurricanes will continue.", "They are very dangerous.", "", "It is still an ongoing concern."] },
+            { id: 1155, storyId: 53, category: "story", type: "multiple", question: "What temperature must ocean water exceed for hurricanes to form?", options: ["60 degrees Fahrenheit", "70 degrees Fahrenheit", "80 degrees Fahrenheit", "90 degrees Fahrenheit"], correct: 2, hint: "The passage gives a specific temperature.", explanation: "Hurricanes form over warm ocean waters where temperatures exceed 80 degrees Fahrenheit!", wrongFeedback: ["The water must be warmer.", "Still not warm enough.", "", "That is warmer than needed."] },
+            { id: 1156, storyId: 53, category: "story", type: "multiple", question: "How high did Hurricane Katrina's storm surge reach in some areas?", options: ["10 feet", "15 feet", "20 feet", "Over 25 feet"], correct: 3, hint: "The passage gives a specific number for Katrina.", explanation: "Hurricane Katrina's storm surge reached over 25 feet in some areas!", wrongFeedback: ["It was much higher.", "Higher than that.", "Even higher.", ""] },
+            { id: 1157, storyId: 53, category: "vocab", type: "multiple", question: "What does 'torrential' mean in 'torrential rain'?", options: ["Light and gentle", "Extremely heavy and intense", "Cold and freezing", "Warm and pleasant"], correct: 1, hint: "Hurricanes bring very powerful rain.", explanation: "Torrential means extremely heavy and pouring down intensely!", wrongFeedback: ["Hurricane rain is very heavy.", "", "It refers to amount, not temperature.", "Hurricanes bring dangerous rain."] },
+            { id: 1158, storyId: 53, category: "vocab", type: "multiple", question: "What is a 'storm surge'?", options: ["A strong gust of wind", "Ocean water pushed toward shore by low pressure and strong winds", "A flash of lightning", "Heavy rainfall"], correct: 1, hint: "The passage explains what causes it and what it does.", explanation: "A storm surge is ocean water pushed toward shore by low pressure and strong winds!", wrongFeedback: ["That describes the wind itself.", "", "That is a different weather event.", "That is rain, not ocean water."] },
+            { id: 1159, storyId: 53, category: "phonics", type: "multiple", question: "How many syllables are in the word 'devastating'?", options: ["Three", "Four", "Five", "Two"], correct: 1, hint: "Clap it out: dev-a-stat-ing.", explanation: "Dev-a-stat-ing has four syllables!", wrongFeedback: ["More than three.", "", "Not that many.", "Much more than two."] },
+            { id: 1160, storyId: 53, category: "inference", type: "multiple", question: "Why does the passage say storm surges often cause more damage than wind?", options: ["Because wind is not very strong", "Because water can flood entire cities and is harder to escape", "Because storm surges happen more often", "Because wind only affects trees"], correct: 1, hint: "Think about what happened with Hurricane Katrina.", explanation: "Storm surges flood entire cities with water, which is extremely destructive and dangerous!", wrongFeedback: ["Hurricane winds are very strong too.", "", "Both happen during a hurricane.", "Wind destroys buildings too."] },
+            { id: 1161, storyId: 53, category: "inference", type: "truefalse", question: "Scientists can prevent hurricanes from forming.", correct: 1, hint: "What does the passage say about preventing hurricanes?", explanation: "False! The passage says 'we cannot prevent these storms' but warning systems help save lives.", wrongFeedback: ["", "The passage says we cannot prevent hurricanes."] },
+            { id: 1162, storyId: 53, category: "context", type: "multiple", question: "What does 'void' mean in 'More air rushes in to fill this void'?", options: ["An empty space", "A loud noise", "A wall of water", "A type of cloud"], correct: 0, hint: "Warm air rose up and left a space below.", explanation: "Void means an empty space that was left when the warm air rose!", wrongFeedback: ["", "Void describes a space, not a sound.", "That describes a storm surge.", "Void is about the empty area below."] },
+            { id: 1163, storyId: 53, category: "summary", type: "multiple", question: "Which best summarizes this passage?", options: ["Hurricanes are small storms that cause little damage", "Hurricane Katrina was the only dangerous hurricane", "Hurricanes are powerful storms that form over warm oceans, and scientists track them to save lives", "Scientists have learned how to stop hurricanes"], correct: 2, hint: "Think about the main points of the whole passage.", explanation: "The passage covers how hurricanes form, their power, and how scientists track them to warn people!", wrongFeedback: ["Hurricanes are extremely powerful.", "Katrina is one example of many.", "", "We cannot stop hurricanes."] },
+            { id: 1164, storyId: 53, category: "grammar", type: "multiple", question: "In 'These massive rotating storm systems form over warm ocean waters,' what is the adjective?", options: ["form", "massive", "systems", "waters"], correct: 1, hint: "Which word describes the storm systems?", explanation: "'Massive' is an adjective that describes the storm systems!", wrongFeedback: ["That is a verb.", "", "That is a noun.", "That is a noun."] },
+            // Story 54: The Invention Fair (Level H, fiction)
+            { id: 1165, storyId: 54, category: "theme", type: "multiple", question: "What is the main message of this story?", options: ["Inventions always work on the first try", "Failure is an essential part of the invention process", "Science fairs are not important", "Only adults can solve environmental problems"], correct: 1, hint: "What did Maya realize at the end?", explanation: "Maya realized that failure was not something to fear but an essential part of inventing!", wrongFeedback: ["Maya failed three times first.", "", "The fair changed Maya's life.", "Maya is fifteen and made a difference."] },
+            { id: 1166, storyId: 54, category: "theme", type: "multiple", question: "What does Maya's story teach about dealing with failure?", options: ["Give up after the first failure", "Failure means you are not smart enough", "Document failures and learn from them to improve", "Avoid challenges so you never fail"], correct: 2, hint: "What did Maya do after each failed design?", explanation: "Maya documented each failure and analyzed what went wrong, leading to success!", wrongFeedback: ["She tried four times.", "She won the grand prize.", "", "She chose a very hard challenge."] },
+            { id: 1167, storyId: 54, category: "story", type: "multiple", question: "What problem was Maya trying to solve?", options: ["Air pollution in cities", "Plastic pollution in oceans", "Noise pollution in schools", "Water pollution in rivers only"], correct: 1, hint: "What environmental problem fascinated Maya?", explanation: "Maya was fascinated by plastic pollution in oceans and built a device to collect microplastics!", wrongFeedback: ["Her focus was on the ocean.", "", "Her invention was for water.", "She focused on ocean pollution."] },
+            { id: 1168, storyId: 54, category: "story", type: "multiple", question: "How many designs did Maya build before one worked?", options: ["One", "Two", "Three", "Four"], correct: 3, hint: "Her first three designs failed. Which number finally worked?", explanation: "Maya's fourth design finally worked after three failures!", wrongFeedback: ["She failed more than once.", "She had more failures.", "One more try after that.", ""] },
+            { id: 1169, storyId: 54, category: "vocab", type: "multiple", question: "What does 'biomimicry' mean in this story?", options: ["Using chemicals to clean water", "Copying designs from nature to solve problems", "Building robots to do work", "Studying ocean currents"], correct: 1, hint: "Maya modeled her design after how whales filter feed.", explanation: "Biomimicry means copying designs from nature, like how whales filter water!", wrongFeedback: ["Her device used filters, not chemicals.", "", "She built a filter device, not a robot.", "Her design copied whales, not currents."] },
+            { id: 1170, storyId: 54, category: "vocab", type: "multiple", question: "What does 'prototype' mean?", options: ["A finished product for sale", "A first working model of an invention", "A type of science award", "A college course"], correct: 1, hint: "Maya built something to test her idea at the fair.", explanation: "A prototype is an early working model built to test an idea!", wrongFeedback: ["It was still being tested.", "", "That would be a trophy.", "Maya was in high school."] },
+            { id: 1171, storyId: 54, category: "phonics", type: "multiple", question: "How many syllables are in the word 'environmental'?", options: ["Four", "Five", "Six", "Three"], correct: 1, hint: "Clap it out: en-vi-ron-men-tal.", explanation: "En-vi-ron-men-tal has five syllables!", wrongFeedback: ["More than four.", "", "Not that many.", "Much more than three."] },
+            { id: 1172, storyId: 54, category: "inference", type: "multiple", question: "Why did Maya model her device after whale baleen?", options: ["Because whales are her favorite animal", "Because baleen filters tiny particles while letting larger creatures pass through", "Because her teacher told her to", "Because whale baleen is easy to find"], correct: 1, hint: "What was special about how whales filter feed?", explanation: "Whale baleen traps tiny particles while letting fish pass through safely, perfect for filtering microplastics!", wrongFeedback: ["The story does not say that.", "", "She came up with the idea herself.", "She used mesh filters, not real baleen."] },
+            { id: 1173, storyId: 54, category: "inference", type: "multiple", question: "Why did a professor offer Maya a summer internship?", options: ["He felt sorry for her", "She paid him to offer it", "He was impressed by her scientific approach and results", "She was already his student"], correct: 2, hint: "What did the judges praise about Maya's work?", explanation: "The professor was impressed by her scientific method, determination, and working prototype!", wrongFeedback: ["She won the grand prize.", "That makes no sense.", "", "She met him at the fair."] },
+            { id: 1174, storyId: 54, category: "context", type: "multiple", question: "What does 'spectacularly' mean in 'Her first three designs failed spectacularly'?", options: ["Quietly and unnoticed", "In a dramatic and impressive way", "Slowly over time", "Only a tiny bit"], correct: 1, hint: "One sank, one broke, and one made things worse. Were these small failures?", explanation: "Spectacularly means in a dramatic, striking way. Her failures were big and obvious!", wrongFeedback: ["The failures were very noticeable.", "", "They failed right away.", "These were major failures."] },
+            { id: 1175, storyId: 54, category: "summary", type: "multiple", question: "Which best summarizes this story?", options: ["Maya easily builds a water filter and wins a prize", "Maya gives up after her inventions fail", "Maya creates a microplastic collector inspired by whales, learns from failures, and wins the invention fair", "Maya's professor builds the invention for her"], correct: 2, hint: "Think about the whole story from start to finish.", explanation: "Maya persisted through failures, built a whale-inspired microplastic collector, and won the grand prize!", wrongFeedback: ["She failed three times first.", "She never gave up.", "", "Maya built it herself."] },
+            { id: 1176, storyId: 54, category: "grammar", type: "multiple", question: "In 'Building the prototype in her garage proved more challenging,' what is the subject?", options: ["the prototype", "Building the prototype in her garage", "her garage", "challenging"], correct: 1, hint: "What proved challenging? The whole action or just one word?", explanation: "'Building the prototype in her garage' is the full subject of the sentence!", wrongFeedback: ["That is the object being built.", "", "That tells where, not what.", "That is a describing word."] },
         
             // ========== QUESTIONS FOR NEW STORIES 99-113 ==========
             // Story 99: Soccer Ball (aa) - 12 questions
