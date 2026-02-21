@@ -131,6 +131,65 @@
     transform: translateY(0);
 }
 
+/* --- Stage 1: Gentle Nudge Overlay --- */
+.idle-nudge-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    z-index: 99997;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+}
+
+.idle-nudge-overlay.visible {
+    opacity: 1;
+}
+
+/* --- Nudge Toast (top center) --- */
+.idle-nudge-toast {
+    position: fixed;
+    top: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #fff;
+    font-family: 'Nunito', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding: 14px 28px;
+    border-radius: 50px;
+    box-shadow: 0 6px 24px rgba(245, 158, 11, 0.4);
+    z-index: 100002;
+    transition: top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.idle-nudge-toast.visible {
+    top: 24px;
+    animation: nudgePulse 2s ease-in-out infinite;
+}
+
+.nudge-wave {
+    display: inline-block;
+    animation: waveHand 1s ease-in-out infinite;
+}
+
+@keyframes nudgePulse {
+    0%, 100% { transform: translateX(-50%) scale(1); }
+    50% { transform: translateX(-50%) scale(1.03); }
+}
+
+@keyframes waveHand {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(15deg); }
+    75% { transform: rotate(-10deg); }
+}
+
 /* --- Floating On-Task Timer Widget --- */
 .focus-timer-widget {
     position: fixed;
@@ -158,6 +217,16 @@
 
 .focus-timer-widget.paused {
     background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.focus-timer-widget.nudge {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    animation: nudgeBounce 2s ease-in-out infinite;
+}
+
+@keyframes nudgeBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
 }
 
 .focus-timer-label {
@@ -261,6 +330,112 @@ body.dark-mode .idle-modal-text {
     color: #94a3b8;
 }
 
+/* --- Streak Celebration Toast --- */
+.streak-toast {
+    position: fixed;
+    bottom: 100px;
+    right: 20px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: #fff;
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.1rem;
+    padding: 12px 24px;
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(249, 115, 22, 0.4);
+    z-index: 100000;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+}
+
+.streak-toast.visible {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* --- Focus Results Card (shown on results screen) --- */
+.focus-results-card {
+    margin: 20px auto;
+    max-width: 460px;
+    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+    border: 2px solid #86efac;
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+}
+
+.focus-results-title {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.3rem;
+    color: #15803d;
+    margin-bottom: 16px;
+}
+
+.focus-results-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.focus-stat-item {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    padding: 12px 8px;
+}
+
+.focus-stat-value {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.5rem;
+    color: #15803d;
+}
+
+.focus-stat-label {
+    font-family: 'Nunito', sans-serif;
+    font-size: 0.85rem;
+    color: #64748b;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+.focus-results-message {
+    font-family: 'Nunito', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #15803d;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 10px;
+}
+
+/* Dark mode */
+body.dark-mode .focus-results-card {
+    background: linear-gradient(135deg, #0f2a1d, #14331f);
+    border-color: #22633a;
+}
+
+body.dark-mode .focus-results-title {
+    color: #6ee7a0;
+}
+
+body.dark-mode .focus-stat-item {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-mode .focus-stat-value {
+    color: #6ee7a0;
+}
+
+body.dark-mode .focus-stat-label {
+    color: #94a3b8;
+}
+
+body.dark-mode .focus-results-message {
+    color: #6ee7a0;
+    background: rgba(255, 255, 255, 0.05);
+}
+
 /* --- Responsive --- */
 @media (max-width: 600px) {
     .focus-timer-widget {
@@ -286,5 +461,21 @@ body.dark-mode .idle-modal-text {
     .fullscreen-prompt {
         padding: 12px 16px;
         gap: 10px;
+    }
+
+    .idle-nudge-toast {
+        font-size: 0.9rem;
+        padding: 12px 20px;
+    }
+
+    .streak-toast {
+        bottom: 80px;
+        right: 12px;
+        font-size: 0.95rem;
+    }
+
+    .focus-results-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
     }
 }

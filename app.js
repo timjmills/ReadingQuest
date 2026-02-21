@@ -3184,6 +3184,68 @@ function showResults() {
     if (c2) c2.textContent = total;
     if (c3) c3.textContent = hintCount;
     if (c4) c4.textContent = correctCount;
+
+    // Focus summary card
+    if (typeof FocusMonitor !== 'undefined') {
+        var focusStats = FocusMonitor.getStats();
+
+        // Remove existing focus card to prevent duplicates
+        var existingCard = document.querySelector('.focus-results-card');
+        if (existingCard) existingCard.remove();
+
+        // Format active time
+        var fMins = Math.floor(focusStats.activeTime / 60);
+        var fSecs = focusStats.activeTime % 60;
+        var fTimeStr = fMins + ':' + (fSecs < 10 ? '0' : '') + fSecs;
+
+        // Format best streak
+        var sMins = Math.floor(focusStats.longestStreak / 60);
+        var sSecs = focusStats.longestStreak % 60;
+        var sTimeStr = sMins + ':' + (sSecs < 10 ? '0' : '') + sSecs;
+
+        // Focus message based on score
+        var focusMsg = '';
+        if (focusStats.focusScore >= 90) {
+            focusMsg = '🌟 Incredible focus! You were locked in!';
+        } else if (focusStats.focusScore >= 70) {
+            focusMsg = '👏 Great concentration! Keep it up!';
+        } else if (focusStats.focusScore >= 50) {
+            focusMsg = '💪 Good effort! Try to stay focused next time!';
+        } else {
+            focusMsg = '🎯 Let\'s work on staying focused next time!';
+        }
+
+        var focusCard = document.createElement('div');
+        focusCard.className = 'focus-results-card';
+        focusCard.innerHTML =
+            '<div class="focus-results-title">🎯 Focus Report</div>' +
+            '<div class="focus-results-grid">' +
+                '<div class="focus-stat-item">' +
+                    '<div class="focus-stat-value">' + fTimeStr + '</div>' +
+                    '<div class="focus-stat-label">⏱️ Active Time</div>' +
+                '</div>' +
+                '<div class="focus-stat-item">' +
+                    '<div class="focus-stat-value">' + focusStats.focusScore + '%</div>' +
+                    '<div class="focus-stat-label">🎯 Focus Score</div>' +
+                '</div>' +
+                '<div class="focus-stat-item">' +
+                    '<div class="focus-stat-value">' + sTimeStr + '</div>' +
+                    '<div class="focus-stat-label">🔥 Best Streak</div>' +
+                '</div>' +
+                '<div class="focus-stat-item">' +
+                    '<div class="focus-stat-value">' + focusStats.idleEvents + '</div>' +
+                    '<div class="focus-stat-label">😴 Times Idle</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="focus-results-message">' + focusMsg + '</div>';
+
+        // Insert after stats-grid, before action-buttons
+        var statsGrid = document.querySelector('#resultsScreen .stats-grid');
+        var actionBtns = document.querySelector('#resultsScreen .action-buttons');
+        if (statsGrid && actionBtns) {
+            statsGrid.parentNode.insertBefore(focusCard, actionBtns);
+        }
+    }
 }
 
 // ========================================

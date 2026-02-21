@@ -25,6 +25,14 @@ var FocusMonitor = (function() {
 
     var eventLog = [];
 
+    var idleStage = 0;        // 0=active, 1=nudge, 2=full idle
+    var stage2Timeout = null;
+    var streakSeconds = 0;     // current consecutive active seconds
+    var longestStreak = 0;     // best streak this session
+    var milestonesShown = {};  // track which milestones we've celebrated
+    var idleEvents = 0;        // count of stage-2 idles
+    var nudgeEvents = 0;       // count of stage-1 nudges
+
     // --- DOM element references (created once) ---
     var overlay = null;
     var idleBackdrop = null;
@@ -34,6 +42,11 @@ var FocusMonitor = (function() {
     var wasTimerRunningIdle = false;
     var wasSpeechActive = false;
     var wasSpeechActiveIdle = false;
+
+    // DOM refs for new elements
+    var nudgeOverlay = null;
+    var nudgeToast = null;
+    var streakToast = null;
 
     // ========================================
     // DOM CREATION
@@ -49,7 +62,7 @@ var FocusMonitor = (function() {
             '<div class="focus-overlay-sub">Switch back to this tab to continue.</div>';
         document.body.appendChild(overlay);
 
-        // Idle modal
+        // Idle modal (stage 2)
         idleBackdrop = document.createElement('div');
         idleBackdrop.className = 'idle-modal-backdrop';
         idleBackdrop.innerHTML =
@@ -79,6 +92,22 @@ var FocusMonitor = (function() {
             '<button class="fullscreen-prompt-dismiss" id="focusDismissFullscreenBtn">Dismiss</button>';
         document.body.appendChild(fullscreenPrompt);
 
+        // Nudge overlay (subtle dim - stage 1)
+        nudgeOverlay = document.createElement('div');
+        nudgeOverlay.className = 'idle-nudge-overlay';
+        document.body.appendChild(nudgeOverlay);
+
+        // Nudge toast (top-center message)
+        nudgeToast = document.createElement('div');
+        nudgeToast.className = 'idle-nudge-toast';
+        nudgeToast.innerHTML = '<span class="nudge-wave">👋</span> Are you there? Move your mouse or tap to continue!';
+        document.body.appendChild(nudgeToast);
+
+        // Streak celebration toast
+        streakToast = document.createElement('div');
+        streakToast.className = 'streak-toast';
+        document.body.appendChild(streakToast);
+
         // Wire up buttons
         document.getElementById('focusIdleBtn').addEventListener('click', dismissIdle);
         document.getElementById('focusGoFullscreenBtn').addEventListener('click', requestFullscreen);
@@ -96,13 +125,44 @@ var FocusMonitor = (function() {
 
         if (isOffTab) {
             offTabTime++;
-        } else if (isIdle) {
+        } else if (idleStage > 0) {
             idleTime++;
         } else {
             activeTime++;
+            // Streak tracking
+            streakSeconds++;
+            if (streakSeconds > longestStreak) {
+                longestStreak = streakSeconds;
+            }
+            checkStreakMilestone();
         }
 
         updateWidget();
+    }
+
+    // ========================================
+    // STREAK MILESTONES
+    // ========================================
+
+    function checkStreakMilestone() {
+        var milestones = [180, 300, 600]; // 3min, 5min, 10min
+        for (var i = 0; i < milestones.length; i++) {
+            if (streakSeconds === milestones[i] && !milestonesShown[milestones[i]]) {
+                milestonesShown[milestones[i]] = true;
+                showStreakCelebration(milestones[i]);
+            }
+        }
+    }
+
+    function showStreakCelebration(seconds) {
+        var mins = Math.floor(seconds / 60);
+        if (streakToast) {
+            streakToast.textContent = '\uD83D\uDD25 ' + mins + ' min streak!';
+            streakToast.classList.add('visible');
+            setTimeout(function() {
+                if (streakToast) streakToast.classList.remove('visible');
+            }, 3000);
+        }
     }
 
     // ========================================
@@ -119,18 +179,36 @@ var FocusMonitor = (function() {
         if (timeEl) timeEl.textContent = timeStr;
 
         var score = totalElapsed > 0 ? Math.round((activeTime / totalElapsed) * 100) : 100;
-        if (scoreEl) scoreEl.textContent = 'Focus: ' + score + '%';
 
-        // Color state
+        // Widget state
         if (widget) {
-            if (isOffTab || isIdle) {
+            var labelEl = widget.querySelector('.focus-timer-label');
+            if (isOffTab || idleStage === 2) {
                 widget.classList.add('paused');
-                var labelEl = widget.querySelector('.focus-timer-label');
+                widget.classList.remove('nudge');
                 if (labelEl) labelEl.textContent = 'Paused';
+                if (scoreEl) scoreEl.textContent = 'Focus: ' + score + '%';
+            } else if (idleStage === 1) {
+                widget.classList.remove('paused');
+                widget.classList.add('nudge');
+                if (labelEl) labelEl.textContent = 'Are you there?';
+                // Show idle duration
+                var idleSecs = Math.round((Date.now() - idleStart) / 1000) || 0;
+                var idleMins = Math.floor(idleSecs / 60);
+                var idleS = idleSecs % 60;
+                if (scoreEl) scoreEl.textContent = 'Idle: ' + idleMins + ':' + (idleS < 10 ? '0' : '') + idleS;
             } else {
                 widget.classList.remove('paused');
-                var labelEl = widget.querySelector('.focus-timer-label');
-                if (labelEl) labelEl.textContent = 'On Task';
+                widget.classList.remove('nudge');
+                // Show streak if >= 60s
+                if (streakSeconds >= 60) {
+                    var strkMins = Math.floor(streakSeconds / 60);
+                    if (labelEl) labelEl.textContent = 'On Task';
+                    if (scoreEl) scoreEl.textContent = '\uD83D\uDD25 ' + strkMins + 'min | Focus: ' + score + '%';
+                } else {
+                    if (labelEl) labelEl.textContent = 'On Task';
+                    if (scoreEl) scoreEl.textContent = 'Focus: ' + score + '%';
+                }
             }
         }
     }
@@ -172,7 +250,7 @@ var FocusMonitor = (function() {
 
     function resetIdleTimer() {
         if (!active) return;
-        if (isIdle) return; // don't reset while modal is showing
+        if (idleStage > 0) return; // don't reset while nudge/idle is showing
 
         if (idleTimeout) {
             clearTimeout(idleTimeout);
@@ -187,29 +265,73 @@ var FocusMonitor = (function() {
             var ps = document.getElementById('practiceScreen');
             if (!ps || ps.classList.contains('hidden')) return;
 
-            showIdle();
+            showNudge();
         }, IDLE_THRESHOLD * 1000);
     }
 
-    function showIdle() {
-        isIdle = true;
+    function showNudge() {
+        if (idleStage !== 0) return;
+        idleStage = 1;
+        nudgeEvents++;
         idleStart = Date.now();
         pauseAppTimerIdle();
+        if (nudgeOverlay) nudgeOverlay.classList.add('visible');
+        if (nudgeToast) nudgeToast.classList.add('visible');
+        if (widget) widget.classList.add('nudge');
+        logEvent('nudge_start');
+
+        // Schedule stage 2 if no activity within IDLE_THRESHOLD * 2 more seconds
+        stage2Timeout = setTimeout(function() {
+            if (!active || isOffTab) return;
+            showFullIdle();
+        }, IDLE_THRESHOLD * 2 * 1000);
+    }
+
+    function showFullIdle() {
+        idleStage = 2;
+        idleEvents++;
+        isIdle = true;
+        idleStart = Date.now();
+        // Hide nudge elements
+        if (nudgeOverlay) nudgeOverlay.classList.remove('visible');
+        if (nudgeToast) nudgeToast.classList.remove('visible');
+        if (widget) widget.classList.remove('nudge');
+        // Show full modal
         if (idleBackdrop) idleBackdrop.classList.add('visible');
+        // Reset streak on full idle
+        streakSeconds = 0;
         logEvent('idle_start');
     }
 
     function dismissIdle() {
+        if (idleStage === 1) {
+            // Dismiss nudge
+            if (nudgeOverlay) nudgeOverlay.classList.remove('visible');
+            if (nudgeToast) nudgeToast.classList.remove('visible');
+            if (widget) widget.classList.remove('nudge');
+            if (stage2Timeout) { clearTimeout(stage2Timeout); stage2Timeout = null; }
+            logEvent('nudge_end');
+        } else if (idleStage === 2) {
+            // Dismiss full idle modal
+            if (idleBackdrop) idleBackdrop.classList.remove('visible');
+            logEvent('idle_end');
+        }
+        idleStage = 0;
         isIdle = false;
-        if (idleBackdrop) idleBackdrop.classList.remove('visible');
         resumeAppTimerIdle();
         resetIdleTimer();
-        logEvent('idle_end');
     }
 
     function onUserActivity() {
         if (!active) return;
-        resetIdleTimer();
+        if (idleStage === 1) {
+            dismissIdle();
+            return;
+        }
+        // Don't auto-dismiss stage 2 (requires button click)
+        if (idleStage === 0) {
+            resetIdleTimer();
+        }
     }
 
     var activityEvents = ['mousemove', 'mousedown', 'click', 'scroll', 'keydown', 'touchstart'];
@@ -377,6 +499,15 @@ var FocusMonitor = (function() {
         wasSpeechActiveIdle = false;
         eventLog = [];
 
+        // Reset two-stage idle and streak state
+        idleStage = 0;
+        streakSeconds = 0;
+        longestStreak = 0;
+        milestonesShown = {};
+        idleEvents = 0;
+        nudgeEvents = 0;
+        if (stage2Timeout) { clearTimeout(stage2Timeout); stage2Timeout = null; }
+
         // Build DOM elements if not yet created
         if (!overlay) buildDOM();
 
@@ -420,6 +551,11 @@ var FocusMonitor = (function() {
         if (idleBackdrop) idleBackdrop.classList.remove('visible');
         if (widget) widget.classList.remove('visible');
         if (fullscreenPrompt) fullscreenPrompt.classList.remove('visible');
+        if (nudgeOverlay) nudgeOverlay.classList.remove('visible');
+        if (nudgeToast) nudgeToast.classList.remove('visible');
+        if (streakToast) streakToast.classList.remove('visible');
+        if (widget) widget.classList.remove('nudge');
+        if (stage2Timeout) { clearTimeout(stage2Timeout); stage2Timeout = null; }
 
         // Unbind listeners
         document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -446,6 +582,9 @@ var FocusMonitor = (function() {
             idleTime: idleTime,
             offTabTime: offTabTime,
             focusScore: score,
+            longestStreak: longestStreak,
+            idleEvents: idleEvents,
+            nudgeEvents: nudgeEvents,
             eventLog: eventLog.slice()
         };
     }
