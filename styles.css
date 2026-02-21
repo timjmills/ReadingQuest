@@ -2078,7 +2078,620 @@
             color: white;
         }
 
-        
+        /* ========================================
+           POS GAME - SIMPLE MODE STYLES
+           ======================================== */
+
+        .pos-game-container {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .pos-game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .pos-game-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #1e40af;
+        }
+
+        .pos-game-progress {
+            font-size: 0.95rem;
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+        .pos-game-score {
+            font-size: 0.95rem;
+            color: #22c55e;
+            font-weight: 700;
+        }
+
+        .pos-game-sentence {
+            font-size: 1.3rem;
+            line-height: 2;
+            padding: 20px 24px;
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            border-radius: 16px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .pos-game-target-word {
+            display: inline;
+            font-weight: 700;
+            background: #fef3c7;
+            padding: 4px 12px;
+            border-radius: 8px;
+            border-bottom: 3px solid #f59e0b;
+            transition: all 0.3s;
+        }
+
+        .pos-game-target-word.pulse {
+            animation: pos-pulse 1.5s ease-in-out infinite;
+        }
+
+        .pos-game-target-word.correct-flash {
+            background: #bbf7d0;
+            border-color: #22c55e;
+        }
+
+        .pos-game-target-word.incorrect-flash {
+            background: #fecaca;
+            border-color: #ef4444;
+        }
+
+        @keyframes pos-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+        }
+
+        .pos-game-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .pos-game-pick-btn {
+            padding: 18px 36px;
+            border-radius: 16px;
+            border: none;
+            font-size: 1.2rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 140px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        .pos-game-pick-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .pos-game-pick-btn:active {
+            transform: scale(0.98);
+        }
+
+        .pos-game-pick-btn.noun-pick {
+            background: #3b82f6;
+        }
+
+        .pos-game-pick-btn.verb-pick {
+            background: #22c55e;
+        }
+
+        .pos-game-pick-btn.adj-pick {
+            background: #f97316;
+        }
+
+        .pos-game-pick-btn.adv-pick {
+            background: #a855f7;
+        }
+
+        .pos-game-pick-btn.correct-flash {
+            animation: correctFlash 0.6s ease;
+            background: #22c55e !important;
+        }
+
+        .pos-game-pick-btn.incorrect-flash {
+            animation: incorrectFlash 0.6s ease;
+            background: #ef4444 !important;
+        }
+
+        @keyframes correctFlash {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes incorrectFlash {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+
+        .pos-game-read-btn {
+            padding: 10px 20px;
+            border-radius: 25px;
+            background: #fbbf24;
+            color: #1f2937;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: all 0.2s;
+        }
+
+        .pos-game-read-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .pos-game-word {
+            display: inline;
+            padding: 0 2px;
+        }
+
+        .pos-game-punct {
+            margin-left: -2px;
+        }
+
+        .pos-game-feedback {
+            min-height: 0;
+            overflow: hidden;
+            transition: all 0.3s;
+            margin: 8px 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .pos-game-feedback.show {
+            min-height: 40px;
+            padding: 10px 16px;
+            border-radius: 12px;
+        }
+
+        .pos-game-feedback.show.correct {
+            background: #ecfdf5;
+            color: #065f46;
+        }
+
+        .pos-game-feedback.show.incorrect {
+            background: #fef2f2;
+            color: #991b1b;
+        }
+
+        .pos-game-correct-msg::before {
+            content: '\2713 ';
+        }
+
+        .pos-game-incorrect-msg::before {
+            content: '\2717 ';
+        }
+
+        .pos-game-final {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pos-game-final-icon {
+            font-size: 2.5rem;
+        }
+
+        .pos-game-final-text {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .pos-game-result {
+            text-align: center;
+            padding: 24px;
+            margin-top: 16px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+            font-size: 1.2rem;
+        }
+
+        /* ========================================
+           POS GAME - ADVANCED PAINTER MODE STYLES
+           ======================================== */
+
+        .pos-paint-container {
+            padding: 16px;
+        }
+
+        .pos-paint-header {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .pos-paint-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #1e40af;
+        }
+
+        .pos-paint-targets {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 12px 0;
+            padding: 10px;
+            background: #f8fafc;
+            border-radius: 12px;
+        }
+
+        .pos-paint-target-pill {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: white;
+            transition: all 0.3s;
+        }
+
+        .pos-paint-target-pill.noun {
+            background: #3b82f6;
+        }
+
+        .pos-paint-target-pill.verb {
+            background: #22c55e;
+        }
+
+        .pos-paint-target-pill.adjective {
+            background: #f97316;
+        }
+
+        .pos-paint-target-pill.adverb {
+            background: #a855f7;
+        }
+
+        .pos-paint-target-pill.filled {
+            opacity: 0.4;
+            text-decoration: line-through;
+        }
+
+        .pos-paint-sentence {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px 12px;
+            padding: 24px;
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            border-radius: 16px;
+            margin-bottom: 16px;
+            line-height: 1.2;
+        }
+
+        .pos-paint-word-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pos-paint-word-group:hover {
+            transform: scale(1.05);
+        }
+
+        .pos-paint-badge-slot {
+            height: 24px;
+            min-width: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pos-paint-badge {
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            animation: posBadgePop 0.3s ease;
+        }
+
+        .pos-paint-badge.noun {
+            background: #3b82f6;
+        }
+
+        .pos-paint-badge.verb {
+            background: #22c55e;
+        }
+
+        .pos-paint-badge.adjective {
+            background: #f97316;
+        }
+
+        .pos-paint-badge.adverb {
+            background: #a855f7;
+        }
+
+        @keyframes posBadgePop {
+            0% { transform: scale(0) rotate(-10deg); }
+            60% { transform: scale(1.2) rotate(3deg); }
+            100% { transform: scale(1) rotate(0); }
+        }
+
+        .pos-paint-badge.correct {
+            box-shadow: 0 0 0 2px #22c55e;
+        }
+
+        .pos-paint-badge.incorrect {
+            box-shadow: 0 0 0 2px #ef4444;
+            animation: incorrectShake 0.5s ease;
+        }
+
+        @keyframes incorrectShake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+
+        .pos-paint-word {
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 1.15rem;
+            font-weight: 500;
+            background: white;
+            border: 2px solid #e2e8f0;
+            user-select: none;
+            transition: all 0.2s;
+        }
+
+        .pos-paint-word.painted {
+            border-color: #93c5fd;
+            background: #eff6ff;
+        }
+
+        .pos-paint-palette {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 16px 0;
+            padding: 12px;
+            background: #f1f5f9;
+            border-radius: 12px;
+        }
+
+        .pos-paint-palette-btn {
+            padding: 10px 22px;
+            border-radius: 25px;
+            border: 3px solid transparent;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: white;
+        }
+
+        .pos-paint-palette-btn.noun {
+            background: #3b82f6;
+        }
+
+        .pos-paint-palette-btn.verb {
+            background: #22c55e;
+        }
+
+        .pos-paint-palette-btn.adjective {
+            background: #f97316;
+        }
+
+        .pos-paint-palette-btn.adverb {
+            background: #a855f7;
+        }
+
+        .pos-paint-palette-btn.active {
+            border-color: #1f2937;
+            transform: scale(1.1);
+            box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.2);
+        }
+
+        .pos-paint-action-btns {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .pos-paint-check-btn {
+            padding: 12px 28px;
+            border-radius: 25px;
+            background: #22c55e;
+            color: white;
+            border: none;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pos-paint-check-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .pos-paint-check-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .pos-paint-read-btn {
+            padding: 10px 20px;
+            border-radius: 25px;
+            background: #fbbf24;
+            color: #1f2937;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pos-paint-read-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .pos-paint-word-static {
+            padding: 8px 14px;
+            font-size: 1.15rem;
+            font-weight: 400;
+            color: #6b7280;
+        }
+
+        .pos-paint-punct {
+            margin-left: -6px;
+            font-size: 1.15rem;
+        }
+
+        .pos-paint-status {
+            text-align: center;
+            font-size: 1rem;
+            color: #6b7280;
+            font-weight: 500;
+            margin: 8px 0;
+            padding: 8px;
+        }
+
+        .pos-paint-targets-label {
+            font-weight: 600;
+            color: #374151;
+            padding: 6px 0;
+        }
+
+        /* ========================================
+           POS GAME - DARK MODE OVERRIDES
+           ======================================== */
+
+        .dark-mode .pos-game-title,
+        .dark-mode .pos-paint-title {
+            color: #93c5fd;
+        }
+
+        .dark-mode .pos-game-sentence {
+            background: linear-gradient(135deg, #1e293b, #334155);
+            color: #e2e8f0;
+        }
+
+        .dark-mode .pos-game-target-word {
+            background: #78350f;
+            border-color: #d97706;
+            color: #fef3c7;
+        }
+
+        .dark-mode .pos-game-progress {
+            color: #9ca3af;
+        }
+
+        .dark-mode .pos-game-result {
+            background: linear-gradient(135deg, #064e3b, #065f46);
+            color: #d1fae5;
+        }
+
+        .dark-mode .pos-paint-sentence {
+            background: linear-gradient(135deg, #1e293b, #334155);
+        }
+
+        .dark-mode .pos-paint-word {
+            background: #374151;
+            border-color: #4b5563;
+            color: white;
+        }
+
+        .dark-mode .pos-paint-word.painted {
+            background: #1e3a5f;
+            border-color: #3b82f6;
+        }
+
+        .dark-mode .pos-paint-palette {
+            background: #1e293b;
+        }
+
+        .dark-mode .pos-paint-targets {
+            background: #1e293b;
+        }
+
+        .dark-mode .pos-paint-read-btn,
+        .dark-mode .pos-game-read-btn {
+            background: #f59e0b;
+            color: #1f2937;
+        }
+
+        .dark-mode .pos-paint-word-static {
+            color: #9ca3af;
+        }
+
+        .dark-mode .pos-paint-status {
+            color: #9ca3af;
+        }
+
+        .dark-mode .pos-paint-targets-label {
+            color: #d1d5db;
+        }
+
+        .dark-mode .pos-game-feedback.show.correct {
+            background: #064e3b;
+            color: #6ee7b7;
+        }
+
+        .dark-mode .pos-game-feedback.show.incorrect {
+            background: #7f1d1d;
+            color: #fca5a5;
+        }
+
+        /* ========================================
+           POS GAME - MOBILE RESPONSIVE
+           ======================================== */
+
+        @media (max-width: 600px) {
+            .pos-game-pick-btn {
+                min-width: 100px;
+                padding: 14px 20px;
+                font-size: 1rem;
+            }
+
+            .pos-game-sentence {
+                font-size: 1.1rem;
+                padding: 16px;
+            }
+
+            .pos-paint-word {
+                padding: 6px 10px;
+                font-size: 1rem;
+            }
+
+            .pos-paint-palette-btn {
+                padding: 8px 16px;
+                font-size: 0.9rem;
+            }
+
+            .pos-game-header {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .pos-paint-sentence {
+                padding: 16px;
+                gap: 4px 8px;
+            }
+        }
+
+
         .answer-option.selected {
             border-color: #6366F1;
             background: linear-gradient(135deg, #C7D2FE 0%, #DDD6FE 100%);
@@ -3152,7 +3765,7 @@
         .settings-bar {
             position: fixed;
             top: 10px;
-            left: 10px;
+            right: 10px;
             display: flex;
             gap: 8px;
             z-index: 1000;
