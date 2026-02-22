@@ -110,6 +110,91 @@ function saveAchievements() {
     }));
 }
 
+// ========================================
+// FEATURE 4: STORY PROGRESS TRACKING
+// ========================================
+var storyProgress = { version: 1, stories: {}, stats: { totalPassed: 0, totalAttempted: 0 } };
+var storiesWithQuestions = {};  // Pre-built index: storyId -> true
+
+function loadStoryProgress() {
+    var saved = localStorage.getItem('readingQuestStoryProgress');
+    if (saved) {
+        try {
+            var data = JSON.parse(saved);
+            if (data && data.stories) {
+                storyProgress = data;
+                // Ensure stats exist
+                if (!storyProgress.stats) {
+                    storyProgress.stats = { totalPassed: 0, totalAttempted: 0 };
+                    // Rebuild stats from data
+                    for (var key in storyProgress.stories) {
+                        storyProgress.stats.totalAttempted++;
+                        if (storyProgress.stories[key].passed) storyProgress.stats.totalPassed++;
+                    }
+                }
+            }
+        } catch(e) { console.log('Error loading story progress'); }
+    }
+}
+
+function saveStoryProgress() {
+    localStorage.setItem('readingQuestStoryProgress', JSON.stringify(storyProgress));
+}
+
+function recordStoryAttempt(storyId, score, starCount) {
+    var id = String(storyId);
+    var entry = storyProgress.stories[id];
+    var isNew = !entry;
+    var now = Date.now();
+
+    if (!entry) {
+        entry = { passed: false, bestScore: 0, attempts: 0, lastAttemptDate: now, firstPassDate: null };
+        storyProgress.stories[id] = entry;
+        storyProgress.stats.totalAttempted++;
+    }
+
+    entry.attempts++;
+    entry.lastAttemptDate = now;
+    if (score > entry.bestScore) entry.bestScore = score;
+
+    if (score >= 75 && !entry.passed) {
+        entry.passed = true;
+        entry.firstPassDate = now;
+        storyProgress.stats.totalPassed++;
+    }
+
+    saveStoryProgress();
+}
+
+function getStoryStatus(storyId) {
+    var entry = storyProgress.stories[String(storyId)];
+    if (!entry) return 'unread';
+    if (entry.passed) return 'passed';
+    return 'attempted';
+}
+
+function getStoryProgressEntry(storyId) {
+    return storyProgress.stories[String(storyId)] || null;
+}
+
+function clearStoryProgress() {
+    if (confirm('Clear all story progress? This cannot be undone.')) {
+        storyProgress = { version: 1, stories: {}, stats: { totalPassed: 0, totalAttempted: 0 } };
+        saveStoryProgress();
+        renderStoryProgress();
+        showToast('Story progress cleared!');
+    }
+}
+
+function buildQuestionIndex() {
+    storiesWithQuestions = {};
+    for (var i = 0; i < questions.length; i++) {
+        if (questions[i] && questions[i].storyId !== undefined) {
+            storiesWithQuestions[questions[i].storyId] = true;
+        }
+    }
+}
+
 function checkAchievement(id) {
     if (achievements[id] && !achievements[id].earned) {
         achievements[id].earned = true;
@@ -1941,6 +2026,7 @@ function initNewFeatures() {
     loadTTSSpeed();
     loadAchievements();
     loadSavedVoice();
+    loadStoryProgress();
 }
 
 document.addEventListener('DOMContentLoaded', initNewFeatures);
@@ -2565,6 +2651,7 @@ function goHome() {
     document.getElementById('practiceScreen').classList.add('hidden');
     document.getElementById('resultsScreen').classList.add('hidden');
     document.getElementById('homeScreen').classList.remove('hidden');
+    renderStoryProgress();
 }
 
 function pickAnswer(idx) {
@@ -2771,10 +2858,180 @@ function updateStoryCount() {
     var e2 = document.getElementById('storyCountNumber');
     if (e1) e1.textContent = count;
     if (e2) e2.textContent = count;
+    renderStoryProgress();
 }
 
 // ========================================
-// PRACTICE FUNCTIONS  
+// STORY PROGRESS BROWSER
+// ========================================
+
+var storyProgressFilter = 'todo';  // 'todo', 'passed', 'all'
+
+function setStoryProgressFilter(filter) {
+    storyProgressFilter = filter;
+    var btns = document.querySelectorAll('.progress-filter-btn');
+    for (var i = 0; i < btns.length; i++) {
+        if (btns[i].getAttribute('data-filter') === filter) {
+            btns[i].classList.add('active');
+        } else {
+            btns[i].classList.remove('active');
+        }
+    }
+    renderStoryProgress();
+}
+
+function renderStoryProgress() {
+    var container = document.getElementById('storyProgressGrid');
+    var overviewFill = document.getElementById('progressOverviewFill');
+    var overviewText = document.getElementById('progressOverviewText');
+    if (!container) return;
+
+    var valid = LEVELS.slice(minLevel, maxLevel + 1);
+
+    // Filter stories by current level range + genre
+    var filtered = [];
+    for (var i = 0; i < stories.length; i++) {
+        var s = stories[i];
+        if (valid.indexOf(s.level) < 0) continue;
+        if (selectedGenre !== 'both' && s.genre !== selectedGenre) continue;
+        if (!storiesWithQuestions[s.id]) continue;
+        filtered.push(s);
+    }
+
+    // Count stats
+    var passedCount = 0;
+    var attemptedCount = 0;
+    for (var i = 0; i < filtered.length; i++) {
+        var status = getStoryStatus(filtered[i].id);
+        if (status === 'passed') passedCount++;
+        else if (status === 'attempted') attemptedCount++;
+    }
+
+    // Update overview bar
+    var totalFiltered = filtered.length;
+    var pctPassed = totalFiltered > 0 ? Math.round((passedCount / totalFiltered) * 100) : 0;
+    if (overviewFill) overviewFill.style.width = pctPassed + '%';
+    if (overviewText) overviewText.textContent = passedCount + ' of ' + totalFiltered + ' stories passed';
+
+    // Apply progress filter
+    var display = [];
+    for (var i = 0; i < filtered.length; i++) {
+        var status = getStoryStatus(filtered[i].id);
+        if (storyProgressFilter === 'todo' && status !== 'passed') {
+            display.push(filtered[i]);
+        } else if (storyProgressFilter === 'passed' && status === 'passed') {
+            display.push(filtered[i]);
+        } else if (storyProgressFilter === 'all') {
+            display.push(filtered[i]);
+        }
+    }
+
+    // Sort: attempted first (retry), then unread, then by level
+    display.sort(function(a, b) {
+        var sa = getStoryStatus(a.id);
+        var sb = getStoryStatus(b.id);
+        var order = { attempted: 0, unread: 1, passed: 2 };
+        if (order[sa] !== order[sb]) return order[sa] - order[sb];
+        return LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level);
+    });
+
+    // Build cards
+    if (display.length === 0) {
+        var emptyMsg = storyProgressFilter === 'passed'
+            ? '<div class="story-progress-empty">No stories passed yet — keep practicing!</div>'
+            : storyProgressFilter === 'todo'
+            ? '<div class="story-progress-empty">All done! Switch to "Passed" to review.</div>'
+            : '<div class="story-progress-empty">No stories available for this level range.</div>';
+        container.innerHTML = emptyMsg;
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < display.length; i++) {
+        var s = display[i];
+        var status = getStoryStatus(s.id);
+        var entry = getStoryProgressEntry(s.id);
+        var color = getPrintLevelColor(s.level);
+
+        var statusClass = 'status-new';
+        if (status === 'passed') {
+            statusClass = 'status-passed';
+        } else if (status === 'attempted') {
+            statusClass = 'status-retry';
+        }
+
+        // Clean title - remove level suffix like "(B)" from display
+        var cleanTitle = s.title.replace(/\s*\([A-Za-z]+\)\s*$/, '');
+
+        html += '<div class="story-progress-card ' + statusClass + '" onclick="startSpecificStory(' + s.id + ')">';
+        html += '<span class="story-card-title">' + cleanTitle + '</span>';
+        html += '<span class="story-card-level" style="background:' + color + ';">' + s.level + '</span>';
+        if (entry) html += '<span class="story-card-score' + (status === 'attempted' ? ' retry' : '') + '">' + entry.bestScore + '%</span>';
+        html += '</div>';
+    }
+    container.innerHTML = html;
+}
+
+function startSpecificStory(storyId) {
+    // Find the story
+    var selectedStory = null;
+    for (var i = 0; i < stories.length; i++) {
+        if (stories[i].id === storyId) { selectedStory = stories[i]; break; }
+    }
+    if (!selectedStory) { alert('Story not found.'); return; }
+
+    // Initialize like startPractice but with a specific story
+    initSessionLog();
+    questionIndex = 0;
+    correctCount = 0;
+    hintCount = 0;
+    hasAnswered = false;
+    selectedAnswerIndex = null;
+    resetReadingAttempts();
+
+    currentStoryId = selectedStory.id;
+
+    // Start logging
+    startStoryLog(selectedStory.id, selectedStory.title, selectedStory.level, selectedStory.wordCount);
+
+    // Get questions for this story (use 'mixed' to get all categories)
+    var storyQuestions = [];
+    for (var i = 0; i < questions.length; i++) {
+        var q = questions[i];
+        if (q && q.storyId === currentStoryId) {
+            storyQuestions.push(q);
+        }
+    }
+
+    if (storyQuestions.length === 0) {
+        alert('No questions found for this story.');
+        return;
+    }
+
+    // Shuffle and take up to 6
+    for (var i = storyQuestions.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var t = storyQuestions[i];
+        storyQuestions[i] = storyQuestions[j];
+        storyQuestions[j] = t;
+    }
+    currentQuestions = storyQuestions.slice(0, 6);
+    currentStoryQuestions = currentQuestions.slice();
+
+    // Start focus monitoring
+    if (typeof FocusMonitor !== 'undefined') FocusMonitor.start();
+
+    // Show vocabulary pre-teach then start
+    showVocabularyPreTeach(selectedStory, function() {
+        document.getElementById('homeScreen').classList.add('hidden');
+        document.getElementById('resultsScreen').classList.add('hidden');
+        document.getElementById('practiceScreen').classList.remove('hidden');
+        displayQuestion();
+    });
+}
+
+// ========================================
+// PRACTICE FUNCTIONS
 // ========================================
 
 function startPractice() {
@@ -2806,9 +3063,16 @@ function startPractice() {
         return; 
     }
     
-    // Step 2: Pick a random story
-    var randomIndex = Math.floor(Math.random() * validStories.length);
-    var selectedStory = validStories[randomIndex];
+    // Step 2: Pick a random story (prefer unfinished)
+    var unfinished = [];
+    for (var i = 0; i < validStories.length; i++) {
+        if (getStoryStatus(validStories[i].id) !== 'passed') {
+            unfinished.push(validStories[i]);
+        }
+    }
+    var pool = unfinished.length > 0 ? unfinished : validStories;
+    var randomIndex = Math.floor(Math.random() * pool.length);
+    var selectedStory = pool[randomIndex];
     currentStoryId = selectedStory.id;
     console.log('DEBUG: Selected story ID:', currentStoryId, 'Level:', selectedStory.level, 'Title:', selectedStory.title);
     
@@ -3162,20 +3426,61 @@ function showResults() {
     var me = document.getElementById('resultsMessage');
     if (se) se.textContent = pct + '%';
     
+    var starCount = 0;
     var stars = '💪', msg = 'Keep practicing!';
-    if (pct >= 90) { stars = '⭐⭐⭐'; msg = 'Amazing!'; }
-    else if (pct >= 70) { stars = '⭐⭐'; msg = 'Great job!'; }
-    else if (pct >= 50) { stars = '⭐'; msg = 'Good effort!'; }
-    
+    if (pct >= 90) { stars = '⭐⭐⭐'; msg = 'Amazing!'; starCount = 3; }
+    else if (pct >= 70) { stars = '⭐⭐'; msg = 'Great job!'; starCount = 2; }
+    else if (pct >= 50) { stars = '⭐'; msg = 'Good effort!'; starCount = 1; }
+
+    // Story progress tracking
+    var previousStatus = getStoryStatus(currentStoryId);
+    recordStoryAttempt(currentStoryId, pct, starCount);
+
+    var heading = document.getElementById('resultsHeading');
+    var actionsContainer = document.getElementById('resultsActions');
+
+    if (pct >= 75 && previousStatus !== 'passed') {
+        // Passed first time!
+        if (heading) heading.textContent = 'Story Mastered!';
+        msg = 'You passed with ' + pct + '%! Awesome!';
+        launchConfetti(60);
+        if (actionsContainer) {
+            actionsContainer.innerHTML =
+                '<button class="btn-secondary" onclick="toggleActivityLog()">📈 Session Log</button>' +
+                '<button class="btn-secondary" onclick="goHome()">🏠 Home</button>' +
+                '<button class="btn-primary" onclick="startPractice()">➡️ Next Story</button>';
+        }
+    } else if (pct < 75) {
+        // Not passed
+        if (heading) heading.textContent = 'Keep Going!';
+        msg = 'You need 75% to pass. Try again!';
+        if (actionsContainer) {
+            actionsContainer.innerHTML =
+                '<button class="btn-secondary" onclick="toggleActivityLog()">📈 Session Log</button>' +
+                '<button class="btn-secondary" onclick="startPractice()">🔀 Different Story</button>' +
+                '<button class="btn-primary" onclick="startSpecificStory(' + currentStoryId + ')">🔄 Try This Story Again</button>';
+        }
+    } else {
+        // Reviewing a passed story
+        if (heading) heading.textContent = 'Great Review!';
+        msg = previousStatus === 'passed' ? 'Nice review! Score: ' + pct + '%' : 'You passed with ' + pct + '%!';
+        if (actionsContainer) {
+            actionsContainer.innerHTML =
+                '<button class="btn-secondary" onclick="toggleActivityLog()">📈 Session Log</button>' +
+                '<button class="btn-secondary" onclick="goHome()">🏠 Home</button>' +
+                '<button class="btn-primary" onclick="startPractice()">➡️ Next Story</button>';
+        }
+    }
+
     if (st) st.textContent = stars;
     if (me) me.textContent = msg;
-    
+
     // Track achievements
     updateAchievementProgress('storyComplete', 1);
     if (pct === 100) {
         updateAchievementProgress('perfectScore', 1);
     }
-    
+
     var c1 = document.getElementById('statCorrect');
     var c2 = document.getElementById('statTotal');
     var c3 = document.getElementById('statHints');
@@ -5776,17 +6081,20 @@ function initApp() {
     minLevel = 0;
     maxLevel = LEVELS.length - 1;
     buildUI();
+    buildQuestionIndex();
     setupSlider();
     updateSliderUI();
-    
+
     // Setup timer button handlers
     var timerBtn = document.getElementById('timerBtn');
     var stopTimerBtn = document.getElementById('stopTimerBtn');
     var doneReadingBtn = document.getElementById('doneReadingBtn');
-    
+
     if (timerBtn) timerBtn.onclick = startTimer;
     if (stopTimerBtn) stopTimerBtn.onclick = stopTimer;
     if (doneReadingBtn) doneReadingBtn.onclick = doneReading;
+
+    renderStoryProgress();
 }
 
 window.onload = initApp;

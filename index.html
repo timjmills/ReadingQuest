@@ -147,6 +147,26 @@
                     </div>
                 </div>
 
+                <!-- Story Progress Browser -->
+                <div class="story-progress-section" style="position: relative; z-index: 1;">
+                    <div class="story-progress-header">
+                        <div class="story-progress-title">My Stories</div>
+                        <button class="story-progress-reset-btn" onclick="clearStoryProgress()" title="Reset progress">Reset</button>
+                    </div>
+                    <div class="progress-overview-bar">
+                        <div class="progress-overview-fill" id="progressOverviewFill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-overview-text" id="progressOverviewText">0 of 0 stories passed</div>
+                    <div class="progress-filter-pills">
+                        <button class="progress-filter-btn active" data-filter="todo" onclick="setStoryProgressFilter('todo')">To Do</button>
+                        <button class="progress-filter-btn" data-filter="passed" onclick="setStoryProgressFilter('passed')">Passed</button>
+                        <button class="progress-filter-btn" data-filter="all" onclick="setStoryProgressFilter('all')">All</button>
+                    </div>
+                    <div class="story-progress-grid" id="storyProgressGrid">
+                        <!-- Cards rendered by JS -->
+                    </div>
+                </div>
+
                 <div class="category-grid" id="categoryGrid" style="position: relative; z-index: 1;">
                     <!-- Categories will be inserted here -->
                 </div>
@@ -274,7 +294,7 @@
                     <span class="floating-emoji">💫</span>
                 </div>
                 <div class="results-container">
-                    <h2 style="font-family: 'Fredoka One', cursive; margin-bottom: 15px; font-size: 2rem; background: var(--gradient-cool); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Great Job!</h2>
+                    <h2 id="resultsHeading" style="font-family: 'Fredoka One', cursive; margin-bottom: 15px; font-size: 2rem; background: var(--gradient-cool); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Great Job!</h2>
                     <div class="results-score" id="resultsScore">0%</div>
                     <div class="results-stars" id="resultsStars">⭐⭐⭐</div>
                     <div class="results-message" id="resultsMessage">You're a Reading Rockstar!</div>
@@ -284,7 +304,7 @@
                         <div class="stat-card"><div class="stat-value" id="statHints">0</div><div class="stat-label">💡 Hints</div></div>
                         <div class="stat-card"><div class="stat-value" id="statStars">0</div><div class="stat-label">⭐ Stars</div></div>
                     </div>
-                    <div class="action-buttons" style="position: relative; z-index: 1;">
+                    <div class="action-buttons" id="resultsActions" style="position: relative; z-index: 1;">
                         <button class="btn-secondary" onclick="toggleActivityLog()">📈 Session Activity Log</button>
                         <button class="btn-secondary" id="homeBtn" onclick="goHome()">🏠 Home</button>
                         <button class="btn-primary" id="retryBtn" onclick="startPractice()">🔄 Try Again</button>
