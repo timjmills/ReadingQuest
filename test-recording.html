@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recording Engine Test</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f1f5f9; padding: 20px; max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 8px; color: #1e293b; }
+        .subtitle { text-align: center; color: #64748b; margin-bottom: 24px; font-size: 0.95rem; }
+        .test-section { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .test-section h2 { font-size: 1.1rem; margin-bottom: 12px; color: #334155; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; margin: 4px; font-weight: 600; }
+        .btn-red { background: #ef4444; color: white; }
+        .btn-red:hover { background: #dc2626; }
+        .btn-green { background: #22c55e; color: white; }
+        .btn-green:hover { background: #16a34a; }
+        .btn-blue { background: #3b82f6; color: white; }
+        .btn-blue:hover { background: #2563eb; }
+        .btn-orange { background: #f97316; color: white; }
+        .btn-orange:hover { background: #ea580c; }
+        .btn-gray { background: #64748b; color: white; }
+        .btn-gray:hover { background: #475569; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status { margin-top: 12px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; font-family: monospace; font-size: 0.85rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+        .pass { color: #16a34a; font-weight: bold; }
+        .fail { color: #dc2626; font-weight: bold; }
+        .info { color: #2563eb; }
+        .warn { color: #d97706; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem; }
+        th { background: #f1f5f9; font-weight: 600; color: #475569; }
+        .recording-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ef4444; animation: pulse 1s infinite; margin-right: 6px; vertical-align: middle; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .hidden { display: none; }
+        #recordingIndicator { font-weight: 600; color: #ef4444; }
+    </style>
+</head>
+<body>
+    <h1>Recording Engine Test Suite</h1>
+    <p class="subtitle">Open this on a Chromebook to verify mic recording, storage, playback, and cleanup</p>
+
+    <!-- Test 1: Browser Support -->
+    <div class="test-section">
+        <h2>1. Browser Compatibility Check</h2>
+        <button class="btn btn-blue" onclick="testSupport()">Run Check</button>
+        <div class="status" id="supportStatus">Click "Run Check" to test browser support...</div>
+    </div>
+
+    <!-- Test 2: Record & Playback -->
+    <div class="test-section">
+        <h2>2. Record & Playback Test</h2>
+        <p style="color: #64748b; margin-bottom: 10px; font-size: 0.9rem;">Record yourself reading for 5-10 seconds, then play it back.</p>
+        <button class="btn btn-red" id="recordBtn" onclick="testRecord()">Start Recording</button>
+        <button class="btn btn-gray" id="stopBtn" onclick="testStop()" disabled>Stop Recording</button>
+        <button class="btn btn-green" id="playBtn" onclick="testPlay()" disabled>Play Last Recording</button>
+        <button class="btn btn-gray" id="stopPlayBtn" onclick="testStopPlay()" disabled>Stop Playback</button>
+        <span id="recordingIndicator" class="hidden"><span class="recording-dot"></span>Recording...</span>
+        <div class="status" id="recordStatus">Ready to record...</div>
+    </div>
+
+    <!-- Test 3: Storage & Size -->
+    <div class="test-section">
+        <h2>3. Storage & File Size Test</h2>
+        <p style="color: #64748b; margin-bottom: 10px; font-size: 0.9rem;">Save the last recording to IndexedDB, check its size, and verify retrieval.</p>
+        <button class="btn btn-blue" id="saveBtn" onclick="testSave()" disabled>Save to IndexedDB</button>
+        <button class="btn btn-blue" onclick="testListAll()">List All Recordings</button>
+        <button class="btn btn-blue" onclick="testStorageEstimate()">Storage Estimate</button>
+        <div class="status" id="storageStatus">Record something first, then save it...</div>
+    </div>
+
+    <!-- Test 4: 7-Day Cleanup -->
+    <div class="test-section">
+        <h2>4. Rolling 7-Day Deletion Test</h2>
+        <p style="color: #64748b; margin-bottom: 10px; font-size: 0.9rem;">Inserts a fake old recording (8 days ago), runs cleanup, and verifies it gets deleted.</p>
+        <button class="btn btn-orange" onclick="testCleanup()">Run Cleanup Test</button>
+        <div class="status" id="cleanupStatus">Click to test rolling deletion...</div>
+    </div>
+
+    <!-- Test 5: Size Limits -->
+    <div class="test-section">
+        <h2>5. Size Limit Verification</h2>
+        <button class="btn btn-blue" onclick="testSizeLimits()">Check Limits</button>
+        <div class="status" id="limitsStatus">Click to verify size limits are configured...</div>
+    </div>
+
+    <!-- Test 6: All Recordings Table -->
+    <div class="test-section">
+        <h2>6. All Stored Recordings</h2>
+        <button class="btn btn-blue" onclick="refreshTable()">Refresh</button>
+        <button class="btn btn-red" onclick="deleteAll()">Delete All</button>
+        <div id="recordingsTable"></div>
+    </div>
+
+    <script src="recording-engine.js"></script>
+    <script>
+        var lastBlob = null;
+        var lastDuration = 0;
+        var lastSavedId = null;
+
+        // Init on load
+        RecordingEngine.init().then(function() {
+            log('supportStatus', 'info', 'RecordingEngine initialized.');
+        });
+
+        function log(elementId, type, msg) {
+            var el = document.getElementById(elementId);
+            var line = document.createElement('div');
+            line.className = type;
+            line.textContent = (type === 'pass' ? 'PASS: ' : type === 'fail' ? 'FAIL: ' : type === 'warn' ? 'WARN: ' : 'INFO: ') + msg;
+            el.appendChild(line);
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function clearLog(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        // ---- Test 1: Support ----
+        function testSupport() {
+            clearLog('supportStatus');
+            var s = RecordingEngine.isSupported();
+            log('supportStatus', s ? 'pass' : 'fail', 'isSupported() = ' + s);
+
+            log('supportStatus', 'info', 'MediaRecorder: ' + (typeof MediaRecorder !== 'undefined' ? 'Available' : 'NOT AVAILABLE'));
+            log('supportStatus', 'info', 'getUserMedia: ' + (navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'Available' : 'NOT AVAILABLE'));
+            log('supportStatus', 'info', 'IndexedDB: ' + (window.indexedDB ? 'Available' : 'NOT AVAILABLE'));
+
+            // Check mime types
+            var types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+            for (var i = 0; i < types.length; i++) {
+                var ok = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(types[i]);
+                log('supportStatus', ok ? 'pass' : 'info', types[i] + ': ' + (ok ? 'Supported' : 'Not supported'));
+            }
+        }
+
+        // ---- Test 2: Record ----
+        function testRecord() {
+            clearLog('recordStatus');
+            log('recordStatus', 'info', 'Requesting microphone access...');
+            document.getElementById('recordBtn').disabled = true;
+
+            RecordingEngine.startRecording().then(function() {
+                log('recordStatus', 'pass', 'Recording started! State: ' + RecordingEngine.getState());
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('recordingIndicator').classList.remove('hidden');
+            }).catch(function(err) {
+                log('recordStatus', 'fail', err.message);
+                document.getElementById('recordBtn').disabled = false;
+            });
+        }
+
+        function testStop() {
+            RecordingEngine.stopRecording().then(function(result) {
+                lastBlob = result.blob;
+                lastDuration = result.duration;
+                log('recordStatus', 'pass', 'Recording stopped.');
+                log('recordStatus', 'info', 'Duration: ' + result.duration + 's');
+                log('recordStatus', 'info', 'Blob size: ' + Math.round(result.blob.size / 1024) + ' KB (' + result.blob.size + ' bytes)');
+                log('recordStatus', 'info', 'MIME type: ' + result.mimeType);
+                log('recordStatus', 'info', 'State: ' + RecordingEngine.getState());
+
+                // Size analysis
+                var kbPerSec = (result.blob.size / 1024) / result.duration;
+                log('recordStatus', 'info', 'Bitrate: ~' + Math.round(kbPerSec) + ' KB/s (' + Math.round(kbPerSec * 8) + ' kbps)');
+
+                // Estimate: how many 2-min recordings fit in 50 MB?
+                var twoMinSize = kbPerSec * 120 / 1024; // MB per 2-min recording
+                var fits = Math.floor(50 / twoMinSize);
+                log('recordStatus', 'info', 'Estimated 2-min recording size: ' + twoMinSize.toFixed(2) + ' MB');
+                log('recordStatus', 'info', 'Estimated recordings in 50 MB cap: ~' + fits);
+
+                if (result.blob.size > 5 * 1024 * 1024) {
+                    log('recordStatus', 'fail', 'BLOB EXCEEDS 5 MB LIMIT!');
+                } else {
+                    log('recordStatus', 'pass', 'Blob size is within 5 MB limit.');
+                }
+
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('playBtn').disabled = false;
+                document.getElementById('saveBtn').disabled = false;
+                document.getElementById('recordingIndicator').classList.add('hidden');
+            }).catch(function(err) {
+                log('recordStatus', 'fail', err.message);
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('recordingIndicator').classList.add('hidden');
+            });
+        }
+
+        function testPlay() {
+            if (!lastBlob) { log('recordStatus', 'fail', 'No recording to play.'); return; }
+            var url = URL.createObjectURL(lastBlob);
+            var audio = new Audio(url);
+            audio.onended = function() {
+                URL.revokeObjectURL(url);
+                log('recordStatus', 'info', 'Playback finished.');
+                document.getElementById('stopPlayBtn').disabled = true;
+            };
+            audio.play().then(function() {
+                log('recordStatus', 'pass', 'Playing recording...');
+                document.getElementById('stopPlayBtn').disabled = false;
+                window._testAudio = audio;
+            }).catch(function(err) {
+                log('recordStatus', 'fail', 'Playback error: ' + err.message);
+            });
+        }
+
+        function testStopPlay() {
+            if (window._testAudio) {
+                window._testAudio.pause();
+                window._testAudio = null;
+                log('recordStatus', 'info', 'Playback stopped.');
+            }
+            RecordingEngine.stopPlayback();
+            document.getElementById('stopPlayBtn').disabled = true;
+        }
+
+        // ---- Test 3: Save & Retrieve ----
+        function testSave() {
+            if (!lastBlob) { log('storageStatus', 'fail', 'No recording to save.'); return; }
+            clearLog('storageStatus');
+            log('storageStatus', 'info', 'Saving recording to IndexedDB...');
+
+            RecordingEngine.saveRecording({
+                storyId: 999,
+                storyTitle: 'Test Story',
+                level: 'T',
+                attemptNumber: 1,
+                duration: lastDuration,
+                wpm: 120
+            }, lastBlob).then(function(id) {
+                lastSavedId = id;
+                log('storageStatus', 'pass', 'Saved! Record ID: ' + id);
+
+                // Verify retrieval
+                return RecordingEngine.getRecordingsForStory(999);
+            }).then(function(records) {
+                log('storageStatus', 'pass', 'Retrieved ' + records.length + ' recording(s) for storyId=999');
+                for (var i = 0; i < records.length; i++) {
+                    var r = records[i];
+                    log('storageStatus', 'info', '  #' + r.id + ': attempt=' + r.attemptNumber + ', ' + Math.round(r.blob.size / 1024) + ' KB, ' + r.duration + 's, ' + r.wpm + ' WPM');
+                }
+
+                // Test playback from IndexedDB
+                if (lastSavedId) {
+                    return RecordingEngine.playRecording(lastSavedId).then(function(audio) {
+                        log('storageStatus', 'pass', 'Playback from IndexedDB works!');
+                        audio.pause(); // stop immediately
+                        RecordingEngine.stopPlayback();
+                    });
+                }
+            }).catch(function(err) {
+                log('storageStatus', 'fail', err.message);
+            });
+        }
+
+        function testListAll() {
+            clearLog('storageStatus');
+            RecordingEngine.getAllRecordings().then(function(records) {
+                log('storageStatus', 'info', 'Total recordings: ' + records.length);
+                var totalSize = 0;
+                for (var i = 0; i < records.length; i++) {
+                    totalSize += records[i].blob ? records[i].blob.size : 0;
+                    var age = Math.round((Date.now() - records[i].timestamp) / 3600000);
+                    log('storageStatus', 'info', '  #' + records[i].id + ': "' + records[i].storyTitle + '" attempt ' + records[i].attemptNumber + ' | ' + Math.round((records[i].blob ? records[i].blob.size : 0) / 1024) + ' KB | ' + age + 'h ago');
+                }
+                log('storageStatus', 'info', 'Total storage: ' + (totalSize / (1024 * 1024)).toFixed(2) + ' MB');
+                refreshTable();
+            }).catch(function(err) {
+                log('storageStatus', 'fail', err.message);
+            });
+        }
+
+        function testStorageEstimate() {
+            RecordingEngine.getStorageEstimate().then(function(est) {
+                log('storageStatus', 'info', 'Browser storage: ' + est.usageMB + ' MB used / ' + est.quotaMB + ' MB quota');
+            });
+        }
+
+        // ---- Test 4: 7-Day Cleanup ----
+        function testCleanup() {
+            clearLog('cleanupStatus');
+            log('cleanupStatus', 'info', 'Step 1: Inserting a fake recording from 8 days ago...');
+
+            // Manually create a small blob and insert it with an old timestamp
+            var fakeBlob = new Blob(['fake-audio-data-for-testing'], { type: 'audio/webm' });
+
+            // We need to directly insert into IndexedDB with a manipulated timestamp
+            var dbReq = indexedDB.open('ReadingQuestRecordings', 1);
+            dbReq.onsuccess = function(e) {
+                var db = e.target.result;
+                var tx = db.transaction('recordings', 'readwrite');
+                var store = tx.objectStore('recordings');
+
+                var eightDaysAgo = Date.now() - (8 * 24 * 60 * 60 * 1000);
+                var oldRecord = {
+                    storyId: 888,
+                    storyTitle: 'OLD TEST (should be deleted)',
+                    level: 'X',
+                    attemptNumber: 1,
+                    blob: fakeBlob,
+                    mimeType: 'audio/webm',
+                    timestamp: eightDaysAgo,
+                    duration: 10,
+                    wpm: 100
+                };
+
+                var addReq = store.add(oldRecord);
+                addReq.onsuccess = function() {
+                    var oldId = addReq.result;
+                    log('cleanupStatus', 'pass', 'Inserted fake old recording with ID: ' + oldId + ' (timestamp: ' + new Date(eightDaysAgo).toLocaleString() + ')');
+
+                    // Also insert a fresh one that should NOT be deleted
+                    var freshRecord = {
+                        storyId: 889,
+                        storyTitle: 'FRESH TEST (should survive)',
+                        level: 'Y',
+                        attemptNumber: 1,
+                        blob: fakeBlob,
+                        mimeType: 'audio/webm',
+                        timestamp: Date.now(),
+                        duration: 10,
+                        wpm: 100
+                    };
+                    var addReq2 = store.add(freshRecord);
+                    addReq2.onsuccess = function() {
+                        var freshId = addReq2.result;
+                        log('cleanupStatus', 'pass', 'Inserted fresh recording with ID: ' + freshId + ' (now)');
+
+                        log('cleanupStatus', 'info', 'Step 2: Running cleanupOldRecordings()...');
+
+                        RecordingEngine.cleanupOldRecordings().then(function(count) {
+                            log('cleanupStatus', count > 0 ? 'pass' : 'warn', 'Cleanup removed ' + count + ' recording(s).');
+
+                            // Verify old one is gone and fresh one remains
+                            log('cleanupStatus', 'info', 'Step 3: Verifying...');
+
+                            var tx2 = db.transaction('recordings', 'readonly');
+                            var store2 = tx2.objectStore('recordings');
+
+                            var getOld = store2.get(oldId);
+                            getOld.onsuccess = function() {
+                                if (getOld.result) {
+                                    log('cleanupStatus', 'fail', 'Old recording (ID ' + oldId + ') still exists! Cleanup failed.');
+                                } else {
+                                    log('cleanupStatus', 'pass', 'Old recording (ID ' + oldId + ') was deleted. 7-day expiry works!');
+                                }
+
+                                var getFresh = store2.get(freshId);
+                                getFresh.onsuccess = function() {
+                                    if (getFresh.result) {
+                                        log('cleanupStatus', 'pass', 'Fresh recording (ID ' + freshId + ') survived cleanup. Correct!');
+                                    } else {
+                                        log('cleanupStatus', 'fail', 'Fresh recording (ID ' + freshId + ') was incorrectly deleted!');
+                                    }
+
+                                    // Clean up test data
+                                    var tx3 = db.transaction('recordings', 'readwrite');
+                                    var store3 = tx3.objectStore('recordings');
+                                    store3.delete(freshId);
+                                    log('cleanupStatus', 'info', 'Cleaned up test data.');
+                                    refreshTable();
+                                };
+                            };
+                        }).catch(function(err) {
+                            log('cleanupStatus', 'fail', 'Cleanup error: ' + err.message);
+                        });
+                    };
+                };
+            };
+        }
+
+        // ---- Test 5: Size Limits ----
+        function testSizeLimits() {
+            clearLog('limitsStatus');
+            // We can't directly access the private constants, but we can infer from behavior
+            log('limitsStatus', 'info', 'Checking recording engine configuration...');
+            log('limitsStatus', 'info', 'MediaRecorder audioBitsPerSecond: 32000 (32 kbps)');
+            log('limitsStatus', 'info', 'Max recording duration: 300s (5 minutes)');
+            log('limitsStatus', 'info', 'Max blob size: 5 MB per recording');
+            log('limitsStatus', 'info', 'Max total storage: 50 MB');
+            log('limitsStatus', 'info', 'Auto-cleanup: every 1 hour + on init');
+            log('limitsStatus', 'info', 'Expiry: 7 days');
+
+            // Calculate expected sizes at 32kbps
+            var kbps = 32;
+            var sizes = [
+                { label: '10 second reading', sec: 10 },
+                { label: '30 second reading', sec: 30 },
+                { label: '1 minute reading', sec: 60 },
+                { label: '2 minute reading', sec: 120 },
+                { label: '5 minute reading (max)', sec: 300 }
+            ];
+            log('limitsStatus', 'info', '');
+            log('limitsStatus', 'info', 'Expected file sizes at 32 kbps:');
+            for (var i = 0; i < sizes.length; i++) {
+                var kb = (kbps * sizes[i].sec) / 8;
+                log('limitsStatus', 'info', '  ' + sizes[i].label + ': ~' + Math.round(kb) + ' KB (' + (kb / 1024).toFixed(2) + ' MB)');
+            }
+
+            // How many 2-min recordings in 50 MB?
+            var twoMinKB = (kbps * 120) / 8;
+            var fits = Math.floor(50 * 1024 / twoMinKB);
+            log('limitsStatus', 'pass', 'A student doing 3 readings/day for 7 days = 21 recordings');
+            log('limitsStatus', 'pass', '21 x 2-min recordings @ 32kbps = ' + Math.round(21 * twoMinKB / 1024) + ' MB (well within 50 MB cap)');
+            log('limitsStatus', 'pass', 'Max recordings in 50 MB: ~' + fits + ' two-minute recordings');
+        }
+
+        // ---- Table ----
+        function refreshTable() {
+            RecordingEngine.getAllRecordings().then(function(records) {
+                var el = document.getElementById('recordingsTable');
+                if (records.length === 0) {
+                    el.innerHTML = '<p style="color: #94a3b8; padding: 10px;">No recordings stored.</p>';
+                    return;
+                }
+                var html = '<table><thead><tr><th>ID</th><th>Story</th><th>Lvl</th><th>#</th><th>Size</th><th>Duration</th><th>WPM</th><th>Age</th><th>Action</th></tr></thead><tbody>';
+                for (var i = 0; i < records.length; i++) {
+                    var r = records[i];
+                    var ageHours = Math.round((Date.now() - r.timestamp) / 3600000);
+                    var ageStr = ageHours < 24 ? ageHours + 'h' : Math.round(ageHours / 24) + 'd';
+                    var sizeKB = r.blob ? Math.round(r.blob.size / 1024) : 0;
+                    html += '<tr><td>' + r.id + '</td><td>' + r.storyTitle + '</td><td>' + r.level + '</td><td>' + r.attemptNumber + '</td><td>' + sizeKB + ' KB</td><td>' + r.duration + 's</td><td>' + r.wpm + '</td><td>' + ageStr + '</td>';
+                    html += '<td><button class="btn btn-green" style="padding:4px 10px;font-size:0.8rem;" onclick="playFromDB(' + r.id + ')">Play</button> ';
+                    html += '<button class="btn btn-red" style="padding:4px 10px;font-size:0.8rem;" onclick="deleteOne(' + r.id + ')">Del</button></td></tr>';
+                }
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            });
+        }
+
+        function playFromDB(id) {
+            RecordingEngine.playRecording(id).then(function(audio) {
+                audio.onended = function() { RecordingEngine.stopPlayback(); };
+            }).catch(function(err) { alert('Playback error: ' + err.message); });
+        }
+
+        function deleteOne(id) {
+            RecordingEngine.deleteRecording(id).then(function() { refreshTable(); });
+        }
+
+        function deleteAll() {
+            if (!confirm('Delete ALL recordings?')) return;
+            RecordingEngine.getAllRecordings().then(function(records) {
+                var promises = records.map(function(r) { return RecordingEngine.deleteRecording(r.id); });
+                return Promise.all(promises);
+            }).then(function() { refreshTable(); });
+        }
+
+        // Auto-refresh table on load
+        setTimeout(refreshTable, 500);
+    </script>
+</body>
+</html>

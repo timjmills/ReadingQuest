@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "Bash(gh auth status:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:reading.cultivatingthedigital.org)",
+      "Bash(curl:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "WebSearch",
+      "Bash(python3:*)",
+      "Bash(python -c:*)",
+      "Bash(where:*)",
+      "Bash(node -e:*)",
+      "Bash(node:*)",
+      "Bash(passage\" placeholder, breaking the quiz entirely\n- Fix 18 existing definitions: factual errors \\(dioxide, compound,\n  reconsolidation\\), grammar \\(rebuttal, catastrophically, panpsychists,\n  reallocation\\), overly narrow definitions \\(tolerance, atmospheres,\n  moderation, resignation, taboo, median, banality, isotopes, remediation,\n  macroscopic\\)\n- Fix critical quiz bug: skip words not in DB instead of using generic\n  fallback that made multiple answers appear valid\n- Fix quiz UX: disable all buttons during correct-answer transition,\n  disable wrong-answer buttons after click to prevent brute-forcing\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(sort:*)",
+      "Bash(cat:*)",
+      "Bash(bc)",
+      "Bash(awk:*)",
+      "Bash(start:*)"
+    ]
+  }
+}

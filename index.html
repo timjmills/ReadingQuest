@@ -28,8 +28,9 @@
     </div>
     
     <!-- Vocabulary Pre-Teach Modal -->
-    <div id="vocabModal" class="vocab-modal">
+    <div id="vocabModal" class="vocab-modal" onclick="if(event.target===this)cancelStoryFromVocab()">
         <div class="vocab-modal-content">
+            <button class="vocab-close-btn" onclick="cancelStoryFromVocab()" title="Close story">&times;</button>
             <div class="modal-body"></div>
         </div>
     </div>
@@ -179,6 +180,8 @@
 
             <!-- Practice Screen -->
             <section id="practiceScreen" class="hidden">
+                <!-- Close Story Button -->
+                <button class="close-story-btn" onclick="closeStory()" title="Close story and go home">&times; Close Story</button>
                 <!-- Progress -->
                 <div class="progress-container">
                     <div class="progress-bar">
@@ -196,8 +199,15 @@
                             <span class="btn-icon">▶️</span>
                             <span class="btn-text">Start Reading</span>
                         </button>
+                        <div class="mic-level-meter" id="micLevelMeter" style="display: none;">
+                            <div class="mic-level-bars" id="micLevelBars"></div>
+                            <div class="mic-level-label" id="micLevelLabel">Speak up!</div>
+                        </div>
                         <div class="inline-timer" id="inlineTimer" style="display: none;">
                             <span class="timer-display-inline" id="timerTime">00:00</span>
+                        </div>
+                        <div class="recording-indicator" id="recordingIndicator" style="display: none;">
+                            <span class="rec-dot"></span> REC
                         </div>
                     </div>
                     <div class="story-controls">
@@ -245,6 +255,17 @@
                             <div class="too-fast-title">Too Fast!</div>
                             <div class="too-fast-text">Slow down and read more carefully.<br>Take your time and try again!</div>
                             <button class="too-fast-ok-btn" onclick="closeTooFastPopup()">OK, I'll Try Again!</button>
+                        </div>
+                    </div>
+                    <div class="listen-back-popup" id="listenBackPopup" style="display: none;">
+                        <div class="listen-back-content">
+                            <div class="listen-back-icon">🎧</div>
+                            <div class="listen-back-title">Great job!</div>
+                            <div class="listen-back-text">You finished all 3 readings! Would you like to listen to your recordings?</div>
+                            <div class="listen-back-buttons">
+                                <button class="listen-back-yes" onclick="listenBackYes()">Yes, play them!</button>
+                                <button class="listen-back-no" onclick="listenBackNo()">No, start questions</button>
+                            </div>
                         </div>
                     </div>
                     <div class="text-size-controls">
@@ -326,6 +347,7 @@
                 <button class="log-tab" onclick="switchLogTab('week')">This Week</button>
                 <button class="log-tab" onclick="switchLogTab('month')">This Month</button>
                 <button class="log-tab" onclick="switchLogTab('all')">All Time</button>
+                <button class="log-tab" data-tab="recordings" onclick="switchLogTab('recordings')"><span class="recordings-tab-icon">🎙️</span> Recordings</button>
             </div>
             
             <div class="log-stats-grid" id="logStatsGrid">
@@ -416,6 +438,11 @@
                         <div class="summary-stat-value" id="totalSessionTimeStat">0:00</div>
                         <div class="summary-stat-label">Total Time</div>
                     </div>
+                    <div class="summary-stat-card">
+                        <div class="summary-stat-icon">🎙️</div>
+                        <div class="summary-stat-value" id="totalRecordingsStat">0</div>
+                        <div class="summary-stat-label">Recordings</div>
+                    </div>
                 </div>
                 
                 <h3 style="margin: 20px 0 16px; color: #1e293b;">📖 Story Details</h3>
@@ -436,6 +463,7 @@
     </div>
 
     <script src="focus-monitor.js"></script>
+    <script src="recording-engine.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

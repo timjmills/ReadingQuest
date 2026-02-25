@@ -813,6 +813,58 @@
             50% { transform: scale(1.05); }
         }
 
+        /* Mic Setting Toggle (near reading instructions) */
+        .mic-setting-toggle {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border: 2px solid #CBD5E1;
+            border-radius: 20px;
+            background: #F1F5F9;
+            font-family: 'Nunito', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #94A3B8;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .mic-setting-toggle:hover {
+            border-color: #F43F5E;
+            background: rgba(244, 63, 94, 0.05);
+            color: #F43F5E;
+        }
+
+        .mic-setting-toggle.active {
+            border-color: #F43F5E;
+            background: linear-gradient(135deg, #FEE2E2, #FECDD3);
+            color: #E11D48;
+        }
+
+        .mic-setting-icon {
+            font-size: 0.9rem;
+            line-height: 1;
+        }
+
+        .dark-mode .mic-setting-toggle {
+            background: #1E293B;
+            border-color: #475569;
+            color: #94A3B8;
+        }
+
+        .dark-mode .mic-setting-toggle:hover {
+            border-color: #FB7185;
+            background: rgba(244, 63, 94, 0.1);
+            color: #FB7185;
+        }
+
+        .dark-mode .mic-setting-toggle.active {
+            border-color: #FB7185;
+            background: rgba(244, 63, 94, 0.2);
+            color: #FB7185;
+        }
+
         .instructions-text {
             font-size: 1rem;
             line-height: 2;
@@ -4008,6 +4060,7 @@
         }
         
         .vocab-modal-content {
+            position: relative;
             background: linear-gradient(135deg, #dbeafe, #bfdbfe);
             border-radius: 20px;
             padding: 30px;
@@ -5229,5 +5282,908 @@
                 padding: 6px 14px;
                 font-size: 0.82rem;
             }
+        }
+
+        /* ============================================
+           RECORDING FEATURE STYLES
+           ============================================ */
+
+        /* Recording Toggle Button (mic on/off in practice screen) */
+        .btn-record {
+            background: linear-gradient(135deg, #94A3B8 0%, #64748B 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(100, 116, 139, 0.3);
+            position: relative;
+        }
+
+        .btn-record.recording-enabled {
+            background: linear-gradient(135deg, #F43F5E 0%, #E11D48 100%);
+            box-shadow: 0 4px 20px rgba(244, 63, 94, 0.5);
+            animation: record-glow 2s ease-in-out infinite;
+        }
+
+        @keyframes record-glow {
+            0%, 100% { box-shadow: 0 4px 20px rgba(244, 63, 94, 0.4); }
+            50% { box-shadow: 0 4px 30px rgba(244, 63, 94, 0.7), 0 0 15px rgba(244, 63, 94, 0.3); }
+        }
+
+        .btn-record:hover {
+            transform: translateY(-3px) scale(1.05);
+        }
+
+        /* Recording Indicator (pulsing red dot during active recording) */
+        .recording-indicator {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            background: rgba(244, 63, 94, 0.1);
+            border-radius: 30px;
+            border: 2px solid rgba(244, 63, 94, 0.3);
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #E11D48;
+        }
+
+        .recording-indicator.active {
+            display: inline-flex;
+        }
+
+        .recording-dot {
+            width: 12px;
+            height: 12px;
+            background: #EF4444;
+            border-radius: 50%;
+            animation: pulse-record 1.2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-record {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+            }
+            50% {
+                transform: scale(1.3);
+                opacity: 0.8;
+                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+        }
+
+        .recording-indicator-text {
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .dark-mode .recording-indicator {
+            background: rgba(244, 63, 94, 0.15);
+            border-color: rgba(244, 63, 94, 0.4);
+            color: #FB7185;
+        }
+
+        /* Attempt Box Recording Badge */
+        .attempt-box .recording-badge {
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.9rem;
+            background: linear-gradient(135deg, #F43F5E, #EC4899);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(244, 63, 94, 0.4);
+            border: 2px solid white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 5;
+        }
+
+        .dark-mode .attempt-box .recording-badge {
+            border-color: #1E293B;
+        }
+
+        .attempt-box .recording-badge:hover {
+            transform: translateX(-50%) scale(1.2);
+            box-shadow: 0 4px 12px rgba(244, 63, 94, 0.5);
+        }
+
+        .attempt-box .recording-badge .badge-icon {
+            font-size: 0.7rem;
+            line-height: 1;
+        }
+
+        /* Recordings Tab in Reading Log Modal */
+        .log-tab[data-tab="recordings"] {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .recordings-tab-icon {
+            font-size: 0.95rem;
+        }
+
+        /* Recordings Tab Content */
+        .recordings-tab-content {
+            animation: fadeInRecordings 0.3s ease;
+        }
+
+        @keyframes fadeInRecordings {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Recording Storage Info Bar */
+        .recording-storage-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.08));
+            border-radius: 14px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(99, 102, 241, 0.15);
+        }
+
+        .dark-mode .recording-storage-bar {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.12));
+            border-color: rgba(99, 102, 241, 0.25);
+        }
+
+        .recording-storage-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #64748B;
+        }
+
+        .dark-mode .recording-storage-info {
+            color: #94A3B8;
+        }
+
+        .recording-storage-icon {
+            font-size: 1.1rem;
+        }
+
+        .recording-storage-progress {
+            width: 120px;
+            height: 8px;
+            background: #E2E8F0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .dark-mode .recording-storage-progress {
+            background: #334155;
+        }
+
+        .recording-storage-fill {
+            height: 100%;
+            background: var(--gradient-cool);
+            border-radius: 10px;
+            transition: width 0.4s ease;
+        }
+
+        .recording-storage-fill.warning {
+            background: var(--gradient-warm);
+        }
+
+        /* Recording List */
+        .recording-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .recording-list-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #94A3B8;
+            font-weight: 600;
+        }
+
+        .recording-list-empty-icon {
+            font-size: 3rem;
+            margin-bottom: 12px;
+            display: block;
+            opacity: 0.5;
+        }
+
+        /* Recording List Item */
+        .recording-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            background: rgba(99, 102, 241, 0.05);
+            border-radius: 16px;
+            transition: all 0.3s ease;
+            animation: fadeInRecordings 0.3s ease;
+            border: 1px solid transparent;
+        }
+
+        .recording-item:hover {
+            background: rgba(99, 102, 241, 0.1);
+            border-color: rgba(99, 102, 241, 0.15);
+        }
+
+        .dark-mode .recording-item {
+            background: rgba(99, 102, 241, 0.08);
+        }
+
+        .dark-mode .recording-item:hover {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: rgba(99, 102, 241, 0.25);
+        }
+
+        /* Recording Play Button (in list) */
+        .recording-play-btn {
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            border-radius: 50%;
+            border: none;
+            background: var(--gradient-cool);
+            color: white;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .recording-play-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 18px rgba(99, 102, 241, 0.4);
+        }
+
+        .recording-play-btn.playing {
+            background: var(--gradient-warm);
+            box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+        }
+
+        .recording-play-btn.playing:hover {
+            box-shadow: 0 6px 18px rgba(244, 63, 94, 0.4);
+        }
+
+        /* Recording Item Info */
+        .recording-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .recording-item-title {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text-light);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .dark-mode .recording-item-title {
+            color: var(--text-dark);
+        }
+
+        .recording-item-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+            color: #94A3B8;
+            margin-top: 3px;
+            font-weight: 600;
+        }
+
+        .recording-item-date {
+            color: #94A3B8;
+        }
+
+        .recording-item-duration {
+            color: #6366F1;
+        }
+
+        .dark-mode .recording-item-duration {
+            color: #818CF8;
+        }
+
+        .recording-item-wpm {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(6, 182, 212, 0.15));
+            color: #059669;
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-weight: 700;
+        }
+
+        .dark-mode .recording-item-wpm {
+            color: #34D399;
+        }
+
+        /* Recording Delete Button */
+        .recording-delete-btn {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(244, 63, 94, 0.1);
+            color: #F43F5E;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+        }
+
+        .recording-item:hover .recording-delete-btn {
+            opacity: 1;
+        }
+
+        .recording-delete-btn:hover {
+            background: #F43F5E;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        /* Mini Audio Player (inline playback) */
+        .mini-audio-player {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.08));
+            border-radius: 14px;
+            margin-top: 8px;
+            border: 1px solid rgba(99, 102, 241, 0.12);
+        }
+
+        .dark-mode .mini-audio-player {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.12));
+            border-color: rgba(99, 102, 241, 0.2);
+        }
+
+        .mini-player-play-btn {
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            border-radius: 50%;
+            border: none;
+            background: var(--gradient-cool);
+            color: white;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 10px rgba(99, 102, 241, 0.3);
+        }
+
+        .mini-player-play-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+
+        .mini-player-play-btn.playing {
+            background: var(--gradient-warm);
+            box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
+        }
+
+        /* Mini Player Progress */
+        .mini-player-progress-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .mini-player-progress {
+            width: 100%;
+            height: 6px;
+            background: #E2E8F0;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .dark-mode .mini-player-progress {
+            background: #334155;
+        }
+
+        .mini-player-progress:hover {
+            height: 8px;
+        }
+
+        .mini-player-progress-fill {
+            height: 100%;
+            background: var(--gradient-cool);
+            border-radius: 10px;
+            transition: width 0.1s linear;
+            position: relative;
+        }
+
+        .mini-player-progress-fill::after {
+            content: '';
+            position: absolute;
+            right: -4px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .mini-player-progress:hover .mini-player-progress-fill::after {
+            opacity: 1;
+        }
+
+        /* Mini Player Time Display */
+        .mini-player-time {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            color: #94A3B8;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Recording Stat Card (in activity log / stats grid) */
+        .log-stat-card.recording-stat {
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), rgba(236, 72, 153, 0.1));
+            border-color: rgba(244, 63, 94, 0.2);
+        }
+
+        .log-stat-card.recording-stat .log-stat-value {
+            background: linear-gradient(135deg, #F43F5E, #EC4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .recording-stat-icon {
+            font-size: 1.5rem;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        /* Recording Clear All Button */
+        .recording-clear-all-btn {
+            display: block;
+            margin: 16px auto 0;
+            padding: 8px 24px;
+            border: none;
+            border-radius: 20px;
+            background: rgba(244, 63, 94, 0.1);
+            color: #F43F5E;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Nunito', sans-serif;
+        }
+
+        .recording-clear-all-btn:hover {
+            background: #F43F5E;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+        }
+
+        /* Recording Permission Prompt */
+        .recording-permission {
+            text-align: center;
+            padding: 24px;
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.05), rgba(236, 72, 153, 0.05));
+            border-radius: 16px;
+            border: 2px dashed rgba(244, 63, 94, 0.2);
+        }
+
+        .recording-permission-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .recording-permission-text {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #64748B;
+            margin-bottom: 14px;
+        }
+
+        .dark-mode .recording-permission-text {
+            color: #94A3B8;
+        }
+
+        .recording-permission-btn {
+            padding: 10px 28px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #F43F5E, #EC4899);
+            color: white;
+            font-family: 'Nunito', sans-serif;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(244, 63, 94, 0.3);
+        }
+
+        .recording-permission-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(244, 63, 94, 0.4);
+        }
+
+        /* Recording Waveform Visualization (optional) */
+        .recording-waveform {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            height: 30px;
+            padding: 0 8px;
+        }
+
+        .recording-waveform-bar {
+            width: 3px;
+            background: #F43F5E;
+            border-radius: 3px;
+            animation: waveform-dance 0.6s ease-in-out infinite alternate;
+        }
+
+        .recording-waveform-bar:nth-child(1) { animation-delay: 0s; height: 8px; }
+        .recording-waveform-bar:nth-child(2) { animation-delay: 0.1s; height: 16px; }
+        .recording-waveform-bar:nth-child(3) { animation-delay: 0.2s; height: 24px; }
+        .recording-waveform-bar:nth-child(4) { animation-delay: 0.3s; height: 16px; }
+        .recording-waveform-bar:nth-child(5) { animation-delay: 0.4s; height: 8px; }
+
+        @keyframes waveform-dance {
+            from { transform: scaleY(0.4); }
+            to { transform: scaleY(1); }
+        }
+
+        .dark-mode .recording-waveform-bar {
+            background: #FB7185;
+        }
+
+        /* Live Mic Level Meter */
+        .mic-level-meter {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            background: #F1F5F9;
+            border-radius: 30px;
+            border: 2px solid #E2E8F0;
+            width: 100%;
+            max-width: 280px;
+        }
+
+        .dark-mode .mic-level-meter {
+            background: #1E293B;
+            border-color: #334155;
+        }
+
+        .mic-level-bars {
+            height: 14px;
+            border-radius: 10px;
+            transition: width 0.12s ease-out, background 0.3s ease;
+            min-width: 4px;
+        }
+
+        .mic-level-bars.level-quiet {
+            background: #ef4444;
+        }
+
+        .mic-level-bars.level-good {
+            background: #f59e0b;
+        }
+
+        .mic-level-bars.level-great {
+            background: #22c55e;
+        }
+
+        .mic-level-label {
+            font-family: 'Nunito', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 700;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .mic-level-label.level-quiet {
+            color: #ef4444;
+        }
+
+        .mic-level-label.level-good {
+            color: #d97706;
+        }
+
+        .mic-level-label.level-great {
+            color: #16a34a;
+        }
+
+        .dark-mode .mic-level-label.level-quiet {
+            color: #f87171;
+        }
+
+        .dark-mode .mic-level-label.level-good {
+            color: #fbbf24;
+        }
+
+        .dark-mode .mic-level-label.level-great {
+            color: #4ade80;
+        }
+
+        /* ============================================
+           RECORDING FEATURE - RESPONSIVE DESIGN
+           ============================================ */
+
+        @media (max-width: 600px) {
+            .recording-indicator {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+                gap: 8px;
+            }
+
+            .recording-dot {
+                width: 10px;
+                height: 10px;
+            }
+
+            .recording-item {
+                padding: 10px 12px;
+                gap: 10px;
+            }
+
+            .recording-play-btn {
+                width: 38px;
+                height: 38px;
+                min-width: 38px;
+                font-size: 0.95rem;
+            }
+
+            .recording-item-meta {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .recording-delete-btn {
+                opacity: 1;
+            }
+
+            .mini-audio-player {
+                padding: 8px 10px;
+                gap: 8px;
+            }
+
+            .mini-player-play-btn {
+                width: 32px;
+                height: 32px;
+                min-width: 32px;
+                font-size: 0.85rem;
+            }
+
+            .recording-storage-bar {
+                flex-direction: column;
+                gap: 8px;
+                text-align: center;
+            }
+
+            .recording-storage-progress {
+                width: 100%;
+            }
+
+            .attempt-box .recording-badge {
+                width: 20px;
+                height: 20px;
+                bottom: -5px;
+            }
+
+            .attempt-box .recording-badge .badge-icon {
+                font-size: 0.6rem;
+            }
+
+            .recording-waveform {
+                height: 24px;
+            }
+
+            .mic-level-meter {
+                max-width: 220px;
+                padding: 6px 10px;
+                gap: 8px;
+            }
+
+            .mic-level-bars {
+                height: 10px;
+            }
+
+            .mic-level-label {
+                font-size: 0.65rem;
+            }
+
+            .mic-setting-toggle {
+                padding: 3px 8px;
+                font-size: 0.7rem;
+            }
+
+            .mic-setting-icon {
+                font-size: 0.8rem;
+            }
+        }
+
+        /* ========================================
+           LISTEN BACK POPUP
+           ======================================== */
+        .listen-back-popup {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            animation: fadeInRecordings 0.3s ease;
+        }
+        .listen-back-content {
+            background: white;
+            border-radius: 24px;
+            padding: 32px 36px;
+            text-align: center;
+            max-width: 380px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .listen-back-icon {
+            font-size: 3rem;
+            margin-bottom: 8px;
+        }
+        .listen-back-title {
+            font-family: 'Fredoka One', cursive;
+            font-size: 1.6rem;
+            background: var(--gradient-cool);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .listen-back-text {
+            font-size: 1.05rem;
+            color: #475569;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        .listen-back-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        .listen-back-yes {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            box-shadow: 0 4px 12px rgba(34,197,94,0.3);
+            transition: transform 0.15s;
+        }
+        .listen-back-yes:hover { transform: scale(1.05); }
+        .listen-back-no {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            background: #e2e8f0;
+            color: #475569;
+            transition: transform 0.15s;
+        }
+        .listen-back-no:hover { transform: scale(1.05); background: #cbd5e1; }
+
+        .dark-mode .listen-back-content {
+            background: #1e293b;
+        }
+        .dark-mode .listen-back-text {
+            color: #94a3b8;
+        }
+        .dark-mode .listen-back-no {
+            background: #334155;
+            color: #e2e8f0;
+        }
+
+        /* Attempt box playing-back highlight */
+        .attempt-box.playing-back {
+            box-shadow: 0 0 0 3px #22c55e, 0 0 16px rgba(34,197,94,0.4);
+            transform: scale(1.08);
+            transition: all 0.3s ease;
+        }
+        .attempt-play-btn.highlight-listen {
+            animation: pulse-record 1s infinite;
+        }
+
+        /* ========================================
+           CLOSE STORY BUTTON
+           ======================================== */
+        #practiceScreen {
+            position: relative;
+        }
+        .close-story-btn {
+            position: absolute;
+            top: 12px;
+            right: 16px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 6px 16px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            z-index: 10;
+            transition: all 0.2s;
+        }
+        .close-story-btn:hover {
+            background: #fee2e2;
+            border-color: #fca5a5;
+            color: #ef4444;
+        }
+        .dark-mode .close-story-btn {
+            background: #334155;
+            border-color: #475569;
+            color: #94a3b8;
+        }
+        .dark-mode .close-story-btn:hover {
+            background: #7f1d1d;
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+
+        /* Vocab modal close button */
+        .vocab-close-btn {
+            position: absolute;
+            top: 12px;
+            right: 16px;
+            background: none;
+            border: none;
+            font-size: 1.8rem;
+            color: #94a3b8;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            line-height: 36px;
+            text-align: center;
+            border-radius: 50%;
+            transition: all 0.2s;
+            z-index: 10;
+        }
+        .vocab-close-btn:hover {
+            background: #fee2e2;
+            color: #ef4444;
+        }
+        .dark-mode .vocab-close-btn {
+            color: #64748b;
+        }
+        .dark-mode .vocab-close-btn:hover {
+            background: #7f1d1d;
+            color: #fca5a5;
         }
 
