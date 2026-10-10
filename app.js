@@ -5317,16 +5317,13 @@ function worksheetReflectionQuestion(story) {
     return 'What is one new thing you learned from this story? Where could you learn more about it?';
 }
 
-function worksheetBuildPage4(story, tier) {
-    var h = '<div class="page-break"></div>';
-    var sectionNum = tier === 'early' ? 5 : 7;
-    // Section: Read-Aloud Practice
-    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83C\uDFA4 Read-Aloud Practice</div>';
-    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read this story aloud 3 times. Track each reading below.</div>';
-    h += '<div class="read-aloud-grid">';
-    for (var r = 1; r <= 3; r++) {
+function worksheetListenReadBoxes() {
+    // Matches the on-screen unlock rule: listen once, read aloud once
+    var boxes = ['\uD83C\uDFA7 Listen', '\uD83C\uDFA4 Read Aloud'];
+    var h = '<div class="read-aloud-grid" style="justify-content:center;">';
+    for (var r = 0; r < boxes.length; r++) {
         h += '<div class="read-aloud-box">';
-        h += '<div class="ra-title">Reading #' + r + '</div>';
+        h += '<div class="ra-title">' + boxes[r] + '</div>';
         h += '<div class="ra-field"><span>Date:</span> <span class="ra-blank"></span></div>';
         h += '<div class="ra-field"><span>Time:</span> <span class="ra-blank"></span></div>';
         h += '<div style="margin-top:4px;font-size:9pt;">How did I do? (circle)</div>';
@@ -5334,6 +5331,16 @@ function worksheetBuildPage4(story, tier) {
         h += '</div>';
     }
     h += '</div>';
+    return h;
+}
+
+function worksheetBuildPage4(story, tier) {
+    var h = '<div class="page-break"></div>';
+    var sectionNum = tier === 'early' ? 5 : 7;
+    // Section: Read-Aloud Practice
+    h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \uD83C\uDFA4 Read-Aloud Practice</div>';
+    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Listen to the story once, then read it aloud once. Track each one below.</div>';
+    h += worksheetListenReadBoxes();
     // Section: My Reflection
     sectionNum++;
     h += '<div class="section-title"><span class="section-num section-num-' + sectionNum + '">' + sectionNum + '</span> \u2B50 My Reflection</div>';
@@ -5394,18 +5401,8 @@ function worksheetBuildCombinedPage3(story, vocab, grammar, tier) {
     }
     // Read-Aloud (simplified boxes)
     h += '<div class="section-title"><span class="section-num section-num-4">4</span> \uD83C\uDFA4 Read-Aloud Practice</div>';
-    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Read this story aloud 3 times. Color a star each time!</div>';
-    h += '<div class="read-aloud-grid">';
-    for (var r = 1; r <= 3; r++) {
-        h += '<div class="read-aloud-box">';
-        h += '<div class="ra-title">Reading #' + r + '</div>';
-        h += '<div class="ra-field"><span>Date:</span> <span class="ra-blank"></span></div>';
-        h += '<div class="ra-field"><span>Time:</span> <span class="ra-blank"></span></div>';
-        h += '<div style="margin-top:4px;font-size:9pt;">How did I do? (circle)</div>';
-        h += '<div class="star-rating">\u2606 \u2606 \u2606 \u2606 \u2606</div>';
-        h += '</div>';
-    }
-    h += '</div>';
+    h += '<div style="font-size:10pt;color:#555;margin-bottom:6px;">Listen to the story once, then read it aloud once. Color a star each time!</div>';
+    h += worksheetListenReadBoxes();
     // Reflection - concrete story-related question
     h += '<div class="section-title"><span class="section-num section-num-5">5</span> \u2B50 My Reflection</div>';
     var reflectionQ = worksheetReflectionQuestion(story);
