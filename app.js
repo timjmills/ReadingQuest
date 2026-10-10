@@ -1866,7 +1866,9 @@ function speakWithHighlight(text, containerSelector) {
     };
     
     utterance.onend = function() {
+        var finished = isHighlightReading;
         isHighlightReading = false;
+        if (finished && containerSelector === '#storyText') markStoryListened();
         if (highlightTimer) {
             clearInterval(highlightTimer);
             highlightTimer = null;
@@ -2203,6 +2205,11 @@ var timerSeconds = 0;
 var currentWordCount = 0;
 var questionsUnlocked = false;
 
+// What a pupil must do before the questions unlock (default: read once, listen once)
+var REQUIRED_READINGS = 1;
+var REQUIRE_LISTEN = true;
+var storyListened = false;
+
 // Recording state
 var recordingEnabled = true; // always record readings
 var isRecordingActive = false;
@@ -2434,7 +2441,9 @@ function speakStory() {
         // When speech ends, swap buttons back
         if (currentUtterance) {
             currentUtterance.onend = function() {
+                var finished = isSpeaking;
                 isSpeaking = false;
+                if (finished) markStoryListened();
                 if (speakBtn) {
                     speakBtn.classList.remove('speaking');
                     speakBtn.classList.remove('hidden');
@@ -2524,7 +2533,7 @@ function speakAnswer(index) {
 
 function speakInstructions() {
     var speakBtn = document.getElementById('speakInstructionsBtn');
-    var text = "Step 1: Press Listen First to hear the story. Step 2: Press Start Reading and read out loud. Step 3: Press Finish Reading when done. Step 4: Complete 3 readings before answering questions!";
+    var text = "Step 1: Press Listen First to hear the story. Step 2: Press Start Reading and read out loud. Step 3: Press Finish Reading when done. Step 4: Listen once and read once to unlock the questions!";
     
     if (isSpeaking) {
         stopSpeaking();
@@ -2696,7 +2705,7 @@ function goHome() {
 function pickAnswer(idx) {
     if (hasAnswered) return;
     if (!questionsUnlocked) {
-        alert('Please complete 3 reading attempts first!');
+        alert(unlockRequirementText());
         return;
     }
     if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
@@ -2713,7 +2722,7 @@ function pickAnswer(idx) {
 function checkAnswer() {
     if (hasAnswered || selectedAnswerIndex === null) return;
     if (!questionsUnlocked) {
-        alert('Please complete 3 reading attempts first!');
+        alert(unlockRequirementText());
         return;
     }
     hasAnswered = true;
@@ -3424,10 +3433,12 @@ function displayQuestion() {
                 overlay = document.createElement('div');
                 overlay.id = 'lockedOverlay';
                 overlay.className = 'locked-overlay';
-                overlay.innerHTML = '<div class="locked-message"><span class="icon">🔒</span>Complete 3 reading attempts to unlock!</div>';
+                overlay.innerHTML = '<div class="locked-message"><span class="icon">🔒</span><span class="locked-text"></span></div>';
                 qc.style.position = 'relative';
                 qc.appendChild(overlay);
             }
+            var lockedText = overlay.querySelector('.locked-text');
+            if (lockedText) lockedText.textContent = unlockRequirementText();
             overlay.style.display = 'flex';
         }
     } else {
@@ -5978,16 +5989,16 @@ function doneReading() {
                 box.appendChild(playBtn);
             }
 
-            // After 3rd recorded reading, show "Want to listen?" popup
-            if (attemptNum >= 3) {
+            // After the last required recorded reading, show "Want to listen?" popup
+            if (attemptNum === REQUIRED_READINGS) {
                 showListenBackPopup();
             }
         }).catch(function(err) {
             isRecordingActive = false;
             console.warn('RecordingEngine: Failed to save recording:', err.message);
-            // If save failed on 3rd attempt, still unlock questions
-            if (attemptNum >= 3) {
-                unlockQuestions();
+            // If save failed on the last required attempt, still unlock questions
+            if (attemptNum === REQUIRED_READINGS) {
+                maybeUnlockQuestions();
             }
         });
     }
@@ -5995,10 +6006,10 @@ function doneReading() {
     // Show WPM results popup
     showWpmResults(wpm);
 
-    // Check if questions should unlock (need 3 valid readings)
-    // If 3rd reading was recorded, defer unlock until listen-back popup dismissal
-    if (readingAttempts >= 3 && !hadActiveRecording) {
-        unlockQuestions();
+    // Check if questions should unlock (REQUIRED_READINGS valid readings + a listen)
+    // If the last required reading was recorded, defer unlock until listen-back popup dismissal
+    if (!(hadActiveRecording && attemptNum === REQUIRED_READINGS)) {
+        maybeUnlockQuestions();
     }
     
     // Reset timer display for next attempt
@@ -6117,10 +6128,10 @@ function listenBackYes() {
     if (popup) popup.style.display = 'none';
 
     // Play recordings 1, 2, 3 in sequence
-    if (typeof RecordingEngine === 'undefined') { unlockQuestions(); return; }
+    if (typeof RecordingEngine === 'undefined') { maybeUnlockQuestions(); return; }
 
     RecordingEngine.getRecordingsForStory(currentStoryId).then(function(recordings) {
-        if (!recordings.length) { unlockQuestions(); return; }
+        if (!recordings.length) { maybeUnlockQuestions(); return; }
 
         // Highlight all play buttons
         var allBtns = document.querySelectorAll('.attempt-play-btn');
@@ -6132,7 +6143,7 @@ function listenBackYes() {
                 // Done playing all — remove highlights and unlock
                 var btns = document.querySelectorAll('.attempt-play-btn.highlight-listen');
                 for (var j = 0; j < btns.length; j++) btns[j].classList.remove('highlight-listen');
-                unlockQuestions();
+                maybeUnlockQuestions();
                 return;
             }
             var rec = recordings[index];
@@ -6154,14 +6165,14 @@ function listenBackYes() {
         }
         playNext();
     }).catch(function() {
-        unlockQuestions();
+        maybeUnlockQuestions();
     });
 }
 
 function listenBackNo() {
     var popup = document.getElementById('listenBackPopup');
     if (popup) popup.style.display = 'none';
-    unlockQuestions();
+    maybeUnlockQuestions();
 }
 
 function playAttemptRecording(btnElement) {
@@ -6389,6 +6400,49 @@ function updateReadingLogDisplay() {
     }
 }
 
+function unlockRequirementText() {
+    var needReadings = readingAttempts < REQUIRED_READINGS;
+    var needListen = REQUIRE_LISTEN && !storyListened;
+    var readText = REQUIRED_READINGS === 1 ? 'read the story once' : 'read the story ' + REQUIRED_READINGS + ' times';
+    if (needReadings && needListen) return 'Listen to the story once and ' + readText + ' to unlock!';
+    if (needListen) return 'Listen to the story once to unlock!';
+    if (needReadings) return (REQUIRED_READINGS === 1 ? 'Read the story once' : 'Read the story ' + REQUIRED_READINGS + ' times') + ' to unlock!';
+    return 'Questions unlocked!';
+}
+
+function updateLockedMessage() {
+    var lockedText = document.querySelector('#lockedOverlay .locked-text');
+    if (lockedText) lockedText.textContent = unlockRequirementText();
+}
+
+function markStoryListened() {
+    if (storyListened) return;
+    storyListened = true;
+    if (questionsUnlocked) return;
+    // A recorded final reading is still waiting on its listen-back popup
+    var popup = document.getElementById('listenBackPopup');
+    if (popup && popup.style.display === 'flex') return;
+    if (isRecordingActive) return;
+    if (readingAttempts < REQUIRED_READINGS) {
+        updateLockedMessage();
+        showToast('Great listening! Now read the story out loud.');
+        return;
+    }
+    maybeUnlockQuestions();
+}
+
+function maybeUnlockQuestions() {
+    if (questionsUnlocked) return;
+    if (readingAttempts >= REQUIRED_READINGS && (!REQUIRE_LISTEN || storyListened)) {
+        unlockQuestions();
+    } else {
+        updateLockedMessage();
+        if (readingAttempts >= REQUIRED_READINGS && REQUIRE_LISTEN && !storyListened) {
+            showToast('Now press Listen or Follow Along to hear the story once.');
+        }
+    }
+}
+
 function unlockQuestions() {
     questionsUnlocked = true;
 
@@ -6434,6 +6488,7 @@ function lockQuestions() {
 function resetReadingAttempts() {
     readingAttempts = 0;
     questionsUnlocked = false;
+    storyListened = false;
     timerSeconds = 0;
 
     // Stop any active recording
