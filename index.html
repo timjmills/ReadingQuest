@@ -9,7 +9,11 @@
 <body>
     <!-- Settings Bar -->
     <div class="settings-bar">
-        <button class="settings-btn" id="darkModeToggle" onclick="toggleDarkMode()">🌙 Dark</button>
+        <div class="reading-display-controls" role="group" aria-label="Reading display">
+            <button class="settings-btn" id="decreaseTextBtn" type="button" onclick="changeReadingTextSize(-1)" aria-label="Decrease text size" title="Decrease text size">A−</button>
+            <button class="settings-btn" id="increaseTextBtn" type="button" onclick="changeReadingTextSize(1)" aria-label="Increase text size" title="Increase text size">A+</button>
+            <button class="settings-btn" id="darkModeToggle" onclick="toggleDarkMode()">🌙 Dark</button>
+        </div>
         <button class="settings-btn" onclick="showAchievementsModal()">🏅 Badges</button>
         <button class="settings-btn" onclick="showVoiceSelector()">🎤 Voice</button>
         <div class="tts-speed-control">
@@ -50,7 +54,7 @@
     <div class="app-container">
         <!-- Header -->
         <header class="header">
-            <button class="dark-mode-toggle" id="darkModeToggle" title="Toggle Dark Mode" onclick="toggleDarkMode()"></button>
+            <button class="dark-mode-toggle" id="headerDarkModeToggle" title="Toggle Dark Mode" onclick="toggleDarkMode()"></button>
             <button class="reading-log-btn" id="readingLogBtn" title="View All-Time Reading Log" onclick="toggleReadingLog()">📚</button>
             <button class="reading-log-btn" id="activityLogBtn" title="View Session Activity Log" onclick="toggleActivityLog()" style="background: linear-gradient(135deg, #667eea, #764ba2); left: 60px;">📈</button>
             <div class="logo" id="logoHome" style="cursor: pointer;" title="Go Home" onclick="goHome()">
@@ -193,57 +197,43 @@
                 <!-- Story Display -->
                 <div class="story-container" id="storyContainer">
                     <div class="story-title" id="storyTitle">📖 <span>Story Title</span></div>
-                    <div class="story-text" id="storyText">Loading story...</div>
-                    <div class="unified-reading-btn-container" id="unifiedBtnContainer">
-                        <button class="unified-reading-btn start-mode" id="unifiedReadingBtn" onclick="toggleReading()">
-                            <span class="btn-icon">▶️</span>
-                            <span class="btn-text">Start Reading</span>
-                        </button>
-                        <div class="mic-level-meter" id="micLevelMeter" style="display: none;">
-                            <div class="mic-level-bars" id="micLevelBars"></div>
-                            <div class="mic-level-label" id="micLevelLabel">Speak up!</div>
+                    <div class="story-text" id="storyText" tabindex="-1" role="region" aria-label="Story text">Loading story...</div>
+                    <div class="story-step-flow" id="storyStepFlow">
+                        <ol class="story-steps" aria-label="Story steps">
+                            <li data-step="listen"><span>1</span> Listen</li>
+                            <li data-step="read"><span>2</span> Read / Record</li>
+                            <li data-step="review"><span>3</span> Listen</li>
+                        </ol>
+                        <p id="storyStepStatus" role="status" aria-live="polite">Listen to the story first.</p>
+                        <div id="optionalPracticeChoice" class="optional-practice-choice hidden">
+                            <label for="optionalPracticeAction">More practice (optional):</label>
+                            <select id="optionalPracticeAction" onchange="chooseOptionalPractice(this.value)">
+                                <option value="read">Read / Record again</option>
+                                <option value="listen" id="optionalListenChoice">Listen to my recording again</option>
+                            </select>
+                            <p>Earn 1 extra star for a completed rerecording or a full relisten.</p>
                         </div>
-                        <div class="inline-timer" id="inlineTimer" style="display: none;">
-                            <span class="timer-display-inline" id="timerTime">00:00</span>
-                        </div>
-                        <div class="recording-indicator" id="recordingIndicator" style="display: none;">
-                            <span class="rec-dot"></span> REC
-                        </div>
-                    </div>
-                    <div class="story-controls">
-                        <div class="tts-controls" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                            <button class="story-btn btn-speak" id="speakBtn" onclick="speakStory()"><span style="font-size: 1.2em;">🔊</span> Listen</button>
-                            <button class="story-btn pause-btn hidden" id="pauseBtn" onclick="pauseResumeAudio()"><span style="font-size: 1.2em;">⏸️</span> Pause</button>
-                            <button class="story-btn btn-stop hidden" id="stopSpeakBtn" onclick="stopSpeaking()"><span style="font-size: 1.2em;">⏹</span> Stop</button>
-                        </div>
-                        <button class="story-btn highlight-read-btn" id="highlightReadBtn" onclick="speakStoryWithHighlight()"><span style="font-size: 1.2em;">📖</span> Follow Along</button>
-                        
-                        <button class="story-btn btn-remix" id="remixStoryBtn">🔀 Remix Story</button>
-                        <button class="story-btn btn-print-worksheet" onclick="generateWorksheet()">🖨️ Print Worksheet</button>
-                    </div>
-                    <div class="reading-instructions">
-                        <div class="instructions-title-row">
-                            <div class="instructions-title">Reading Practice Instructions</div>
-                            <button class="instructions-speak-btn" id="speakInstructionsBtn" title="Listen to instructions" onclick="speakInstructions()">🔊</button>
-                        </div>
-                        <div class="instructions-text">
-                            1. Press <strong>Listen First</strong> to hear the story<br>
-                            2. Press <strong>Start Reading</strong> and read out loud<br>
-                            3. Press <strong>Finish Reading</strong> when done<br>
-                            4. <strong>Listen once</strong> and <strong>read once</strong> to unlock the questions!
+                        <div class="unified-reading-btn-container" id="unifiedBtnContainer">
+                            <button type="button" class="unified-reading-btn start-mode" id="storyActionBtn" onclick="advanceStoryStep()">
+                                <span class="btn-icon">🔊</span><span class="btn-text">Listen</span>
+                            </button>
+                            <div class="mic-level-meter" id="micLevelMeter" style="display: none;">
+                                <div class="mic-level-bars" id="micLevelBars"></div>
+                                <div class="mic-level-label" id="micLevelLabel">Speak up!</div>
+                            </div>
+                            <div class="inline-timer" id="inlineTimer" style="display: none;">
+                                <span class="timer-display-inline" id="timerTime">00:00</span>
+                            </div>
+                            <div class="recording-indicator" id="recordingIndicator" style="display: none;">
+                                <span class="rec-dot"></span> REC
+                            </div>
                         </div>
                     </div>
                     <div class="reading-progress" id="readingProgress">
-                        <span class="progress-label">Reading Progress:</span>
+                        <span class="progress-label">Read once:</span>
                         <div class="reading-attempts">
                             <div class="attempt-box" id="attempt1"><span class="attempt-num">1</span><span class="attempt-wpm" id="wpm1">--</span></div>
-                            <div class="attempt-box" id="attempt2"><span class="attempt-num">2</span><span class="attempt-wpm" id="wpm2">--</span></div>
-                            <div class="attempt-box" id="attempt3"><span class="attempt-num">3</span><span class="attempt-wpm" id="wpm3">--</span></div>
                         </div>
-                    </div>
-                    <div class="timer-display" id="timerDisplayOld" style="display: none !important;">
-                        <div class="timer-wpm" id="timerWpm">Read aloud!</div>
-                        <button class="done-reading-btn" id="doneReadingBtn" onclick="doneReading()">✋ Finish</button>
                     </div>
                     <div class="wpm-results hidden" id="wpmResults">
                         <div class="wpm-score" id="wpmScore">0 WPM</div>
@@ -257,26 +247,10 @@
                             <button class="too-fast-ok-btn" onclick="closeTooFastPopup()">OK, I'll Try Again!</button>
                         </div>
                     </div>
-                    <div class="listen-back-popup" id="listenBackPopup" style="display: none;">
-                        <div class="listen-back-content">
-                            <div class="listen-back-icon">🎧</div>
-                            <div class="listen-back-title">Great job!</div>
-                            <div class="listen-back-text">You finished all 3 readings! Would you like to listen to your recordings?</div>
-                            <div class="listen-back-buttons">
-                                <button class="listen-back-yes" onclick="listenBackYes()">Yes, play them!</button>
-                                <button class="listen-back-no" onclick="listenBackNo()">No, start questions</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="text-size-controls">
-                        <span>Text Size:</span>
-                        <button class="size-btn" id="decreaseTextBtn">A-</button>
-                        <button class="size-btn" id="increaseTextBtn">A+</button>
-                    </div>
                 </div>
 
                 <!-- Question Area -->
-                <div class="question-card" id="questionCard">
+                <div class="question-card" id="questionCard" tabindex="-1" role="region" aria-labelledby="questionTextContent">
                     <div class="question-header">
                         <span class="question-number" id="questionNumber">Question 1</span>
                         <span class="question-type-badge" id="questionBadge">Theme</span>
@@ -297,10 +271,14 @@
                     </div>
                 </div>
 
-                <div class="action-buttons">
+                <div class="action-buttons practice-actions">
                     <button class="btn-secondary" id="skipBtn">⏭️ Skip</button>
                     <button class="btn-primary" id="checkBtn" disabled onclick="checkAnswer()">✔️ Check Answer</button>
                     <button class="btn-primary hidden" id="nextBtn" onclick="nextQuestion()">➡️ Next</button>
+                </div>
+                <div class="teacher-reading-controls">
+                    <button type="button" id="printWorksheetBtn" onclick="generateWorksheet(currentStoryId)">🖨️ Print Worksheet</button>
+                    <button type="button" id="teacherSkipReadingBtn" onclick="skipReadingListening()">Teacher: Skip reading/listening</button>
                 </div>
             </section>
 
@@ -462,6 +440,18 @@
         </div>
     </div>
 
+    <dialog id="teacherSkipDialog" class="teacher-skip-dialog" aria-labelledby="teacherSkipTitle">
+        <form id="teacherSkipForm" onsubmit="submitTeacherSkip(event)">
+            <h2 id="teacherSkipTitle">Teacher access</h2>
+            <label for="teacherSkipPin">Enter the teacher PIN to skip reading/listening.</label>
+            <input id="teacherSkipPin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required autocomplete="off" aria-describedby="teacherSkipError">
+            <p id="teacherSkipError" role="alert"></p>
+            <div class="teacher-skip-dialog-actions">
+                <button type="button" onclick="document.getElementById('teacherSkipDialog').close()">Cancel</button>
+                <button type="submit">Unlock questions</button>
+            </div>
+        </form>
+    </dialog>
     <script src="focus-monitor.js"></script>
     <script src="recording-engine.js"></script>
     <script src="app.js"></script>
