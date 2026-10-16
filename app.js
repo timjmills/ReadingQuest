@@ -2393,6 +2393,7 @@ var storyAudioActive = false;
 var storyReviewPlaying = false;
 var storyReviewLoading = false;
 var storyReviewGeneration = 0;
+var storyReviewAudio = null;
 var recordingStarting = false;
 var recordingSaving = false;
 var pendingRecordingSession = null;
@@ -2704,7 +2705,10 @@ function speakAnswer(index) {
 
 function toggleReadingLog() {
     var m = document.getElementById('readingLogModal');
-    if (m) m.classList.toggle('active');
+    if (m) {
+        m.classList.toggle('active');
+        if (!m.classList.contains('active')) stopRecordingMiniPlayer();
+    }
 }
 
 function switchLogTab(period) {
@@ -4726,7 +4730,7 @@ function toggleActivityLog() {
         modal.classList.toggle('active');
         if (isOpening) {
             updateActivityLogDisplay();
-        }
+        } else stopRecordingMiniPlayer();
     }
 }
 
@@ -4892,7 +4896,7 @@ function updateActivityLogDisplay() {
                 RecordingEngine.getRecordingsForStory(sid).then(function(recs) {
                     for (var ri = 0; ri < recs.length; ri++) {
                         if (recs[ri].attemptNumber === attempt) {
-                            cell.innerHTML = '<span style="cursor:pointer;" title="Play recording" onclick="playRecordingInline(' + recs[ri].id + ', this)">🎙️</span>';
+                            cell.innerHTML = '<button type="button" class="recording-play-btn" title="Play recording" onclick="playRecordingInline(' + recs[ri].id + ', this)"><span class="rec-play-icon">▶</span></button><div class="mini-player-slot"></div>';
                             return;
                         }
                     }
@@ -6004,15 +6008,16 @@ function updateStoryFlow() {
         : timerRunning || readingAttempts < REQUIRED_READINGS || storyNeedsRecording ? 'read' : 'review';
     var busy = recordingStarting || recordingSaving || storyReviewLoading;
     var practiceChoice = document.getElementById('optionalPracticeChoice');
-    if (practiceChoice) practiceChoice.classList.toggle('hidden', !questionsUnlocked || busy || timerRunning || storyReviewPlaying);
+    var reviewPaused = storyReviewAudio && storyReviewAudio.paused;
+    if (practiceChoice) practiceChoice.classList.toggle('hidden', !questionsUnlocked || busy || timerRunning || (storyReviewPlaying && !reviewPaused));
     var listenChoice = document.getElementById('optionalListenChoice');
     if (listenChoice) listenChoice.disabled = !storyRecordingId;
     var choice = document.getElementById('optionalPracticeAction');
     if (choice) choice.value = optionalRecordingReview ? 'listen' : 'read';
     var label = step === 'listen' ? (storyAudioActive ? 'Stop listening' : 'Listen')
         : step === 'read' ? (timerRunning ? 'Finish Reading' : 'Read / Record')
-        : step === 'ready' ? (storyReviewPlaying ? 'Stop listening' : optionalRecordingReview ? 'Listen to my recording (Optional)' : 'Read / Record Again (Optional)')
-        : storyReviewPlaying ? 'Stop listening' : 'Listen to my recording';
+        : step === 'ready' ? (storyReviewPlaying ? (reviewPaused ? 'Resume listening' : 'Pause listening') : optionalRecordingReview ? 'Listen to my recording (Optional)' : 'Read / Record Again (Optional)')
+        : storyReviewPlaying ? (reviewPaused ? 'Resume listening' : 'Pause listening') : 'Listen to my recording';
     var message = step === 'ready' ? 'Questions are unlocked. You can reread or make another recording if you want.'
         : step === 'listen' ? (storyAudioActive ? 'Listen to the whole story.' : 'Listen to the story first.')
         : step === 'read' ? (timerRunning ? 'Read the story aloud. Press Finish Reading when you are done.' : 'Now read the story aloud. Your voice will be recorded.')
@@ -6020,6 +6025,7 @@ function updateStoryFlow() {
     if (recordingStarting) { label = 'Connecting microphone…'; message = 'Allow microphone access to record your reading.'; }
     if (recordingSaving) { label = 'Saving recording…'; message = 'Your recording is being saved.'; }
     if (storyReviewLoading) { label = 'Loading recording…'; message = 'Getting your recording ready.'; }
+    if (storyReviewPlaying) message = reviewPaused ? 'Your recording is paused. Resume when you are ready.' : 'Listen to your recording. You can pause or use the time bar to go back or skip ahead.';
     if (step === 'review' && !storyRecordingId && !busy) {
         message = 'No recording is available. Ask your teacher for help or use the teacher skip.';
     }
@@ -6027,7 +6033,7 @@ function updateStoryFlow() {
     button.classList.toggle('reading-mode', timerRunning);
     button.classList.toggle('start-mode', !timerRunning);
     button.disabled = busy || (step === 'review' && !storyRecordingId);
-    button.innerHTML = '<span class="btn-icon">' + (timerRunning || storyAudioActive || storyReviewPlaying ? '⏹' : step === 'read' ? '🎙️' : '🔊') +
+    button.innerHTML = '<span class="btn-icon">' + (storyReviewPlaying ? (reviewPaused ? '▶' : '⏸') : timerRunning || storyAudioActive ? '⏹' : step === 'read' ? '🎙️' : '🔊') +
         '</span><span class="btn-text">' + label + '</span>';
     status.textContent = storyStepError || message;
     document.querySelectorAll('.story-steps li').forEach(function(item) {
@@ -6045,7 +6051,8 @@ function updateStoryFlow() {
 }
 
 function chooseOptionalPractice(action) {
-    if (!questionsUnlocked || timerRunning || recordingStarting || recordingSaving || storyReviewLoading || storyReviewPlaying) return;
+    if (!questionsUnlocked || timerRunning || recordingStarting || recordingSaving || storyReviewLoading || (storyReviewPlaying && (!storyReviewAudio || !storyReviewAudio.paused))) return;
+    if (storyReviewPlaying) stopStoryReviewPlayback();
     optionalRecordingReview = action === 'listen' && storyRecordingId !== null;
     storyStepError = '';
     updateStoryFlow();
@@ -6220,12 +6227,99 @@ function attemptStartRecording() {
     });
 }
 
+function recordingPlaybackDuration(audio) {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+    if (audio.ended && Number.isFinite(audio.currentTime) && audio.currentTime > 0) return audio.currentTime;
+    return Number.isFinite(audio._recordingDuration) && audio._recordingDuration > 0 ? audio._recordingDuration : 0;
+}
+
+function recordingPlaybackTime(seconds) {
+    seconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+    return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+}
+
+function bindRecordingTimeline(audio, container) {
+    if (!container) return;
+    container.classList.add('recording-timeline');
+    container.classList.remove('hidden');
+    container.innerHTML = '<input class="recording-seek" type="range" min="0" max="0" value="0" step="0.01" aria-label="Recording playback position">' +
+        '<div class="recording-playback-time"><span class="recording-current-time">0:00</span><span class="recording-total-time">--:--</span></div>' +
+        '<p class="recording-timeline-hint">Click or drag the bar to go back or skip ahead. You can also use the arrow keys.</p>';
+    var seek = container.querySelector('.recording-seek');
+    var current = container.querySelector('.recording-current-time');
+    var total = container.querySelector('.recording-total-time');
+    var events = ['timeupdate', 'durationchange', 'loadedmetadata', 'seeking', 'seeked', 'ended'];
+    function update() {
+        var duration = recordingPlaybackDuration(audio);
+        var time = Number.isFinite(audio.currentTime) ? Math.max(0, audio.currentTime) : 0;
+        seek.max = duration;
+        seek.disabled = duration <= 0;
+        seek.value = Math.min(time, duration);
+        current.textContent = recordingPlaybackTime(time);
+        total.textContent = duration > 0 ? recordingPlaybackTime(duration) : '--:--';
+        seek.setAttribute('aria-valuetext', current.textContent + ' of ' + total.textContent);
+    }
+    function move() {
+        var duration = recordingPlaybackDuration(audio);
+        if (!duration) return;
+        try { audio.currentTime = Math.max(0, Math.min(Number(seek.value), duration)); }
+        catch (err) { showToast('That part is not ready yet. Try again in a moment.'); }
+        update();
+    }
+    events.forEach(function(name) { audio.addEventListener(name, update); });
+    seek.addEventListener('input', move);
+    audio._disposeRecordingTimeline = function() {
+        events.forEach(function(name) { audio.removeEventListener(name, update); });
+        seek.removeEventListener('input', move);
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        audio._disposeRecordingTimeline = null;
+    };
+    update();
+}
+
+function clearRecordingTimeline(audio) {
+    if (audio && audio._disposeRecordingTimeline) audio._disposeRecordingTimeline();
+}
+
+function recordingFullyPlayed(audio) {
+    var duration = recordingPlaybackDuration(audio);
+    if (!duration || !audio.played || !audio.played.length) return false;
+    var covered = 0;
+    // played records only time actually heard, excluding gaps made by seeking.
+    // Allow small codec rounding differences at the start and end.
+    for (var i = 0; i < audio.played.length; i++) {
+        if (audio.played.start(i) > covered + 0.25) return false;
+        covered = Math.max(covered, audio.played.end(i));
+    }
+    return covered >= duration - 0.25;
+}
+
+function toggleRecordingPlayback(audio, onError) {
+    if (!audio.paused) { audio.pause(); return; }
+    try { audio.play().catch(onError); }
+    catch (err) { onError(err); }
+}
+
+function stopStoryReviewPlayback() {
+    storyReviewGeneration++;
+    clearRecordingTimeline(storyReviewAudio);
+    storyReviewAudio = null;
+    storyReviewPlaying = false;
+    storyReviewLoading = false;
+    if (typeof RecordingEngine !== 'undefined') RecordingEngine.stopPlayback();
+}
+
 function listenToOwnRecording() {
     if (!storyRecordingId || storyReviewLoading) return;
-    if (storyReviewPlaying) {
-        storyReviewGeneration++;
-        RecordingEngine.stopPlayback();
-        storyReviewPlaying = false;
+    if (storyReviewPlaying && storyReviewAudio) {
+        var activeAudio = storyReviewAudio;
+        toggleRecordingPlayback(activeAudio, function() {
+            if (storyReviewAudio !== activeAudio) return;
+            stopStoryReviewPlayback();
+            storyStepError = 'Your recording could not resume. Try Listen again or ask your teacher.';
+            updateStoryFlow();
+        });
         updateStoryFlow(); return;
     }
     var session = readingSession;
@@ -6238,21 +6332,43 @@ function listenToOwnRecording() {
         if (session !== readingSession || token !== storyReviewGeneration) { audio.pause(); return; }
         storyReviewLoading = false;
         storyReviewPlaying = true;
+        storyReviewAudio = audio;
+        bindRecordingTimeline(audio, document.getElementById('storyPlaybackTimeline'));
+        function currentPlayback() { return session === readingSession && token === storyReviewGeneration && storyReviewAudio === audio; }
+        audio.addEventListener('play', function() { if (currentPlayback()) updateStoryFlow(); });
+        audio.addEventListener('pause', function() { if (currentPlayback()) updateStoryFlow(); });
+        audio.addEventListener('recordingstop', function() {
+            if (!currentPlayback()) return;
+            clearRecordingTimeline(audio);
+            storyReviewAudio = null;
+            storyReviewPlaying = false;
+            storyReviewGeneration++;
+            updateStoryFlow();
+        }, {once: true});
         updateStoryFlow();
         audio.addEventListener('ended', function() {
-            if (session !== readingSession || token !== storyReviewGeneration || !storyReviewPlaying) return;
+            if (!currentPlayback() || !storyReviewPlaying || !audio.ended) return;
+            var complete = recordingFullyPlayed(audio);
+            clearRecordingTimeline(audio);
+            storyReviewAudio = null;
             storyReviewPlaying = false;
+            if (!complete) {
+                storyStepError = optional ? 'Replay the whole recording to earn a relistening star.' : 'Listen to the whole recording to unlock the questions. Try again without skipping any parts.';
+                updateStoryFlow(); return;
+            }
             storyReviewComplete = true;
             optionalRecordingReview = optional;
             if (optional) awardEarnedStar();
             saveReadingProgress();
             maybeUnlockQuestions();
             updateStoryFlow();
-        }, {once: true});
+        });
         audio.addEventListener('error', function() {
             if (session !== readingSession || token !== storyReviewGeneration) return;
             storyReviewPlaying = false;
             storyReviewGeneration++;
+            clearRecordingTimeline(audio);
+            storyReviewAudio = null;
             storyStepError = 'Your recording could not play. Try Listen again or ask your teacher.';
             updateStoryFlow();
         }, {once: true});
@@ -6614,12 +6730,7 @@ function unlockQuestions() {
     }
     var indicator = document.getElementById('recordingIndicator');
     if (indicator) indicator.style.display = 'none';
-    if (storyReviewPlaying || storyReviewLoading) {
-        storyReviewGeneration++;
-        storyReviewPlaying = false;
-        storyReviewLoading = false;
-        if (typeof RecordingEngine !== 'undefined') RecordingEngine.stopPlayback();
-    }
+    if (storyReviewPlaying || storyReviewLoading) stopStoryReviewPlayback();
     saveReadingProgress();
     updateReadingButton();
     var teacherSkip = document.getElementById('teacherSkipReadingBtn');
@@ -6724,10 +6835,7 @@ function closeReadingOverlays() {
 }
 
 function stopStoryStepActivity() {
-    storyReviewGeneration++;
-    if (typeof RecordingEngine !== 'undefined') RecordingEngine.stopPlayback();
-    storyReviewPlaying = false;
-    storyReviewLoading = false;
+    stopStoryReviewPlayback();
     recordingStarting = false;
     recordingSaving = false;
     storyRecordingId = null;
@@ -6768,8 +6876,11 @@ function submitTeacherSkip(event) {
 // ============================================
 
 var _recordingMiniPlayer = null;
+var _recordingMiniGeneration = 0;
+var _recordingMiniPending = null;
 
 function renderRecordingsTab(container) {
+    stopRecordingMiniPlayer();
     if (typeof RecordingEngine === 'undefined' || !RecordingEngine.isSupported()) {
         container.innerHTML = '<div class="recording-list-empty"><span class="recording-list-empty-icon">🎙️</span><div>Recording is not supported in this browser.</div></div>';
         return;
@@ -6832,65 +6943,78 @@ function formatRecordingDuration(seconds) {
 }
 
 function playRecordingInline(id, btn) {
-    if (_recordingMiniPlayer && _recordingMiniPlayer._recId === id) { stopRecordingMiniPlayer(); return; }
+    if (_recordingMiniPlayer && _recordingMiniPlayer._recId === id) {
+        var active = _recordingMiniPlayer;
+        toggleRecordingPlayback(active, function() {
+            if (_recordingMiniPlayer !== active) return;
+            stopRecordingMiniPlayer();
+            showToast('Could not resume recording. Try playing it again.');
+        });
+        setRecordingPlayButton(btn, !active.paused);
+        return;
+    }
     stopRecordingMiniPlayer();
-    var playIcon = btn.querySelector('.rec-play-icon');
-    if (playIcon) playIcon.textContent = '⏸';
-    btn.classList.add('playing');
-    var slot = document.getElementById('miniPlayer_' + id);
+    var token = ++_recordingMiniGeneration;
+    var host = btn.closest('.recording-item, .rec-indicator-cell');
+    var slot = host ? host.querySelector('.mini-player-slot') : document.getElementById('miniPlayer_' + id);
+    _recordingMiniPending = {id: id, btn: btn, slot: slot};
+    btn.setAttribute('aria-busy', 'true');
     RecordingEngine.playRecording(id).then(function(audio) {
+        if (token !== _recordingMiniGeneration) { audio.pause(); return; }
+        _recordingMiniPending = null;
+        btn.removeAttribute('aria-busy');
         _recordingMiniPlayer = audio;
         _recordingMiniPlayer._recId = id;
         _recordingMiniPlayer._btn = btn;
-        if (slot) {
-            slot.innerHTML = '<div class="mini-audio-player"><div class="mini-player-progress-wrapper"><div class="mini-player-progress" id="miniProgress_' + id + '"><div class="mini-player-progress-fill" id="miniProgressFill_' + id + '" style="width:0%"></div></div><div class="mini-player-time"><span id="miniTimeCurrent_' + id + '">0:00</span><span id="miniTimeTotal_' + id + '">--</span></div></div></div>';
-            var progressBar = document.getElementById('miniProgress_' + id);
-            if (progressBar) {
-                progressBar.onclick = function(e) {
-                    if (_recordingMiniPlayer && _recordingMiniPlayer.duration) {
-                        var rect = progressBar.getBoundingClientRect();
-                        var pct = (e.clientX - rect.left) / rect.width;
-                        _recordingMiniPlayer.currentTime = pct * _recordingMiniPlayer.duration;
-                    }
-                };
-            }
+        _recordingMiniPlayer._slot = slot;
+        bindRecordingTimeline(audio, slot);
+        function sync() {
+            if (_recordingMiniPlayer === audio) setRecordingPlayButton(btn, !audio.paused);
         }
-        var progressInterval = setInterval(function() {
-            if (!_recordingMiniPlayer || _recordingMiniPlayer._recId !== id) { clearInterval(progressInterval); return; }
-            var cur = _recordingMiniPlayer.currentTime || 0;
-            var dur = _recordingMiniPlayer.duration || 0;
-            var pct = dur > 0 ? (cur / dur) * 100 : 0;
-            var fill = document.getElementById('miniProgressFill_' + id);
-            var timeCur = document.getElementById('miniTimeCurrent_' + id);
-            var timeTotal = document.getElementById('miniTimeTotal_' + id);
-            if (fill) fill.style.width = pct + '%';
-            if (timeCur) timeCur.textContent = formatRecordingDuration(Math.floor(cur));
-            if (timeTotal && dur > 0) timeTotal.textContent = formatRecordingDuration(Math.floor(dur));
-        }, 200);
-        audio.onended = function() {
-            clearInterval(progressInterval);
+        function finish() {
+            if (_recordingMiniPlayer !== audio) return;
+            clearRecordingTimeline(audio);
             resetMiniPlayerUI(id, btn, slot);
             _recordingMiniPlayer = null;
-        };
+        }
+        audio.addEventListener('play', sync);
+        audio.addEventListener('pause', sync);
+        audio.addEventListener('ended', finish, {once: true});
+        audio.addEventListener('error', finish, {once: true});
+        audio.addEventListener('recordingstop', finish, {once: true});
+        sync();
     }).catch(function() {
-        if (playIcon) playIcon.textContent = '▶';
-        btn.classList.remove('playing');
+        if (token !== _recordingMiniGeneration) return;
+        _recordingMiniPending = null;
+        resetMiniPlayerUI(id, btn, slot);
+        showToast('Could not play recording.');
     });
 }
 
+function setRecordingPlayButton(btn, playing) {
+    var icon = btn.querySelector('.rec-play-icon') || btn;
+    icon.textContent = playing ? '⏸' : '▶';
+    btn.classList.toggle('playing', playing);
+    btn.title = playing ? 'Pause recording' : 'Play recording';
+    btn.setAttribute('aria-label', btn.title);
+}
+
 function stopRecordingMiniPlayer() {
-    if (_recordingMiniPlayer) {
-        var id = _recordingMiniPlayer._recId;
-        var btn = _recordingMiniPlayer._btn;
-        var slot = document.getElementById('miniPlayer_' + id);
-        RecordingEngine.stopPlayback();
-        resetMiniPlayerUI(id, btn, slot);
-        _recordingMiniPlayer = null;
+    _recordingMiniGeneration++;
+    var pending = _recordingMiniPending;
+    _recordingMiniPending = null;
+    if (pending) resetMiniPlayerUI(pending.id, pending.btn, pending.slot);
+    var audio = _recordingMiniPlayer;
+    _recordingMiniPlayer = null;
+    if (audio) {
+        clearRecordingTimeline(audio);
+        resetMiniPlayerUI(audio._recId, audio._btn, audio._slot);
     }
+    if (audio || pending) RecordingEngine.stopPlayback();
 }
 
 function resetMiniPlayerUI(id, btn, slot) {
-    if (btn) { var icon = btn.querySelector('.rec-play-icon'); if (icon) icon.textContent = '▶'; btn.classList.remove('playing'); }
+    if (btn) { setRecordingPlayButton(btn, false); btn.removeAttribute('aria-busy'); }
     if (slot) slot.innerHTML = '';
 }
 

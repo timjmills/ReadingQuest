@@ -65,10 +65,36 @@ class ReadingWorkflowTests(unittest.TestCase):
             RecordingEngine.stopRecording = () => Promise.resolve({
                 duration: 8, mimeType: 'audio/webm', blob: new Blob(['test audio'])
             });
+            window.makeTestRecordingAudio = () => {
+                const audio = Object.assign(new EventTarget(), {
+                    duration: 8, currentTime: 0, paused: false, ended: false,
+                    played: {length: 1, start: () => 0, end: () => 8}
+                });
+                const dispatch = audio.dispatchEvent.bind(audio);
+                audio.dispatchEvent = event => {
+                    if (event.type === 'ended' && !audio.paused) {
+                        audio.ended = true; audio.paused = true; audio.currentTime = 8;
+                    }
+                    return dispatch(event);
+                };
+                audio.pause = () => { audio.paused = true; audio.dispatchEvent(new Event('pause')); };
+                audio.play = () => {
+                    audio.paused = false; audio.ended = false; audio.dispatchEvent(new Event('play'));
+                    return Promise.resolve();
+                };
+                return audio;
+            };
             RecordingEngine.playRecording = () => {
-                window.testRecordingAudio = new EventTarget();
-                testRecordingAudio.pause = () => {};
+                window.activeTestRecordingAudio = window.testRecordingAudio = makeTestRecordingAudio();
                 return Promise.resolve(testRecordingAudio);
+            };
+            RecordingEngine.stopPlayback = () => {
+                const audio = window.activeTestRecordingAudio;
+                window.activeTestRecordingAudio = null;
+                if (audio) {
+                    audio.pause(); audio.currentTime = 0;
+                    audio.dispatchEvent(new Event('recordingstop'));
+                }
             };
         }""")
 
@@ -135,7 +161,7 @@ class ReadingWorkflowTests(unittest.TestCase):
         self.open_story()
         self.page.wait_for_function('storyRecordingId !== null')
         self.assertEqual(self.page.evaluate('readingAttempts'), 1)
-        self.page.evaluate("RecordingEngine.playRecording = () => { window.testRecordingAudio = new EventTarget(); testRecordingAudio.pause=()=>{}; return Promise.resolve(testRecordingAudio); }")
+        self.page.evaluate("RecordingEngine.playRecording = () => Promise.resolve(window.testRecordingAudio = makeTestRecordingAudio())")
         self.review()
         self.assert_unlocked()
 
@@ -398,6 +424,18 @@ class ReadingWorkflowTests(unittest.TestCase):
         self.assertEqual(recordings[0]['storyId'], 7)
         self.assertGreater(recordings[0]['size'], 0)
         self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio && storyReviewAudio.currentTime > 0.05')
+        self.page.locator('#storyActionBtn').click()
+        seek = self.page.locator('#storyPlaybackTimeline .recording-seek')
+        self.assertTrue(seek.is_enabled())
+        seek.evaluate("e => { e.value=0.7; e.dispatchEvent(new Event('input', {bubbles:true})); }")
+        self.page.wait_for_function('storyReviewAudio.currentTime >= 0.6 && !storyReviewAudio.seeking')
+        seek.evaluate("e => { e.value=0.5; e.dispatchEvent(new Event('input', {bubbles:true})); }")
+        self.page.wait_for_function('storyReviewAudio.currentTime < 0.6 && !storyReviewAudio.seeking')
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio === null')
+        self.assert_unlocked(False)
+        self.page.locator('#storyActionBtn').click()
         self.page.wait_for_function('storyReviewComplete')
         self.assert_unlocked()
 
@@ -520,7 +558,7 @@ class ReadingWorkflowTests(unittest.TestCase):
             self.assertTrue(self.page.locator('.vocab-quiz').is_visible())
             self.page.evaluate('cancelStoryFromVocab()')
 
-    def test_final_listen_must_finish_and_cancel_does_not_unlock(self):
+    def test_final_listen_must_finish_and_pause_does_not_unlock(self):
         self.open_story()
         self.listen()
         self.read()
@@ -528,11 +566,12 @@ class ReadingWorkflowTests(unittest.TestCase):
         self.page.locator('#storyActionBtn').click()
         self.page.wait_for_function('storyReviewPlaying')
         self.page.evaluate('window.oldRecordingAudio = testRecordingAudio')
-        self.page.locator('#storyActionBtn').click()  # Stop the recording partway through.
+        self.page.locator('#storyActionBtn').click()  # Pause the recording partway through.
         self.assert_unlocked(False)
         self.page.evaluate("oldRecordingAudio.dispatchEvent(new Event('ended'))")
         self.assert_unlocked(False)
-        self.review()
+        self.page.locator('#storyActionBtn').click()  # Resume the same recording.
+        self.page.evaluate("testRecordingAudio.dispatchEvent(new Event('ended'))")
         self.assert_unlocked()
         self.page.reload()
         self.mock_recording()
@@ -823,6 +862,227 @@ class ReadingWorkflowTests(unittest.TestCase):
         self.page.locator('#storyActionBtn').click()
         self.page.wait_for_function('!recordingSaving && !timerRunning')
         self.assert_content_at_top('#questionCard')
+        self.assert_unlocked()
+
+    def test_recording_timeline_progress_pause_resume_and_seek(self):
+        self.open_story()
+        self.listen()
+        self.read()
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        seek = self.page.locator('#storyPlaybackTimeline .recording-seek')
+        self.assertTrue(seek.is_visible())
+        self.assertEqual(seek.get_attribute('max'), '8')
+        self.page.evaluate("testRecordingAudio.currentTime=3; testRecordingAudio.dispatchEvent(new Event('timeupdate'))")
+        self.assertEqual(seek.input_value(), '3')
+        self.assertEqual(self.page.locator('.recording-current-time').inner_text(), '0:03')
+        self.assertEqual(self.page.locator('.recording-total-time').inner_text(), '0:08')
+        self.page.locator('#storyActionBtn').click()
+        self.assertTrue(self.page.evaluate('testRecordingAudio.paused'))
+        self.assertEqual(self.page.locator('#storyActionBtn .btn-text').inner_text(), 'Resume listening')
+        self.assertEqual(self.page.evaluate('testRecordingAudio.currentTime'), 3)
+        for width in [1366, 320]:
+            self.page.set_viewport_size({'width': width, 'height': 600})
+            box = seek.bounding_box()
+            self.assertGreaterEqual(box['x'], 0)
+            self.assertLessEqual(box['x'] + box['width'], width)
+            seek.click(position={'x': box['width'] * 0.75, 'y': box['height'] / 2})
+            self.assertGreater(self.page.evaluate('testRecordingAudio.currentTime'), 5)
+            seek.press('Home')
+            self.assertEqual(self.page.evaluate('testRecordingAudio.currentTime'), 0)
+            seek.press('ArrowRight')
+            self.assertGreater(self.page.evaluate('testRecordingAudio.currentTime'), 0)
+            self.assertTrue(self.page.evaluate('testRecordingAudio.paused'))
+        self.page.locator('#storyActionBtn').click()
+        self.assertFalse(self.page.evaluate('testRecordingAudio.paused'))
+        self.assertTrue(self.page.evaluate('storyReviewAudio === testRecordingAudio'))
+        self.assert_unlocked(False)
+        self.page.evaluate("testRecordingAudio.dispatchEvent(new Event('ended'))")
+        self.assert_unlocked()
+
+    def test_skipping_audio_does_not_complete_required_listen_or_award_bonus(self):
+        self.open_story()
+        self.listen()
+        self.read()
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        self.page.evaluate("""() => {
+            testRecordingAudio.played={length:2,start:i=>[0,6][i],end:i=>[2,8][i]};
+            testRecordingAudio.dispatchEvent(new Event('ended'));
+        }""")
+        self.assert_unlocked(False)
+        self.assertIn('whole recording', self.page.locator('#storyStepStatus').inner_text())
+        self.review()
+        self.assert_unlocked()
+        self.read()  # One star for a completed optional rerecording.
+        self.assertEqual(self.page.evaluate('totalStars'), 1)
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        self.page.evaluate("testRecordingAudio.played={length:1,start:()=>7,end:()=>8}; testRecordingAudio.dispatchEvent(new Event('ended'))")
+        self.assert_unlocked()
+        self.assertEqual(self.page.evaluate('totalStars'), 1)
+        self.review()
+        self.assertEqual(self.page.evaluate('totalStars'), 2)
+        self.page.evaluate("testRecordingAudio.dispatchEvent(new Event('ended'))")
+        self.assertEqual(self.page.evaluate('totalStars'), 2)
+
+    def test_timeline_handles_unknown_webm_duration_and_playback_cleanup(self):
+        self.open_story()
+        self.listen()
+        self.read()
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        seek = self.page.locator('#storyPlaybackTimeline .recording-seek')
+        self.page.evaluate("testRecordingAudio.duration=Infinity; testRecordingAudio._recordingDuration=8; testRecordingAudio.dispatchEvent(new Event('durationchange'))")
+        self.assertEqual(seek.get_attribute('max'), '8')
+        seek.press('End')
+        self.assertEqual(self.page.evaluate('testRecordingAudio.currentTime'), 8)
+        self.page.evaluate("testRecordingAudio._recordingDuration=0; testRecordingAudio.dispatchEvent(new Event('durationchange'))")
+        self.assertTrue(seek.is_disabled())
+        self.page.evaluate("testRecordingAudio.duration=12; testRecordingAudio.dispatchEvent(new Event('durationchange'))")
+        self.assertEqual(seek.get_attribute('max'), '12')
+        self.assertTrue(seek.is_enabled())
+        self.page.evaluate('window.oldAudio=testRecordingAudio; closeStory()')
+        self.assertTrue(self.page.evaluate('oldAudio.paused'))
+        self.assertEqual(self.page.locator('#storyPlaybackTimeline .recording-seek').count(), 0)
+        self.open_story(13)
+        self.page.evaluate("oldAudio.dispatchEvent(new Event('timeupdate')); oldAudio.dispatchEvent(new Event('ended'))")
+        self.assert_unlocked(False)
+        self.assertEqual(self.page.locator('#storyPlaybackTimeline .recording-seek').count(), 0)
+
+    def test_paused_optional_listen_can_switch_to_rerecord_and_resume_errors_retry(self):
+        self.open_story()
+        self.listen()
+        self.read()
+        self.review()
+        self.page.locator('#optionalPracticeAction').select_option('listen')
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        self.page.locator('#storyActionBtn').click()
+        self.page.evaluate("() => { testRecordingAudio.play=()=>Promise.reject(new Error('resume failed')); }")
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio === null')
+        self.assert_unlocked()
+        self.assertEqual(self.page.evaluate('totalStars'), 0)
+        self.assertIn('could not resume', self.page.locator('#storyStepStatus').inner_text())
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        self.page.locator('#storyActionBtn').click()
+        self.page.locator('#optionalPracticeAction').select_option('read')
+        self.assertFalse(self.page.evaluate('storyReviewPlaying'))
+        self.assertTrue(self.page.evaluate('testRecordingAudio.paused'))
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('timerRunning')
+        self.assert_unlocked()
+
+    def test_saved_recordings_use_pause_resume_and_seekable_timeline(self):
+        self.open_story()
+        self.listen()
+        self.read()
+        self.page.evaluate("""() => {
+            const container=document.createElement('div');
+            container.id='testSavedRecording';
+            container.innerHTML='<button id="testSavedPlay" onclick="playRecordingInline(storyRecordingId,this)"><span class="rec-play-icon">▶</span></button><div id="miniPlayer_'+storyRecordingId+'"></div>';
+            document.getElementById('storyStepFlow').appendChild(container);
+        }""")
+        button = self.page.locator('#testSavedPlay')
+        button.click()
+        self.page.wait_for_function('_recordingMiniPlayer !== null')
+        self.page.evaluate("testRecordingAudio.currentTime=4; testRecordingAudio.dispatchEvent(new Event('timeupdate'))")
+        seek = self.page.locator('#testSavedRecording .recording-seek')
+        self.assertEqual(seek.input_value(), '4')
+        button.click()
+        self.assertTrue(self.page.evaluate('testRecordingAudio.paused'))
+        seek.press('Home')
+        self.assertEqual(self.page.evaluate('testRecordingAudio.currentTime'), 0)
+        button.click()
+        self.assertFalse(self.page.evaluate('testRecordingAudio.paused'))
+        self.page.evaluate('stopRecordingMiniPlayer()')
+        self.assertEqual(self.page.locator('#testSavedRecording .recording-seek').count(), 0)
+        self.assertEqual(button.get_attribute('title'), 'Play recording')
+        self.assert_unlocked(False)  # The saved-recording player is separate from the required story listen.
+
+    def test_cancelled_native_playback_does_not_start_late_and_exit_releases_microphone(self):
+        self.open_story()
+        self.listen()
+        self.read()
+        self.page.evaluate('Object.assign(RecordingEngine, originalRecordingMethods)')
+        result = self.page.evaluate('''async () => {
+            const pending=RecordingEngine.playRecording(storyRecordingId);
+            RecordingEngine.stopPlayback();
+            try { await pending; return 'unexpected playback'; }
+            catch(error) { return error.message; }
+        }''')
+        self.assertEqual(result, 'Playback canceled.')
+        self.assertEqual(self.page.evaluate('RecordingEngine.getState()'), 'idle')
+        self.page.evaluate('closeStory()')
+        self.open_story(13)
+        self.listen()
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('isRecordingActive && RecordingEngine.getState() === "recording"')
+        self.page.evaluate('closeStory()')
+        self.page.wait_for_function('RecordingEngine.getState() === "idle" && RecordingEngine.getAnalyserNode() === null')
+        self.assertFalse(self.page.evaluate('isRecordingActive'))
+
+    def test_saved_recording_switch_ignores_late_playback_results(self):
+        self.page.evaluate('''() => {
+            window.pendingTestPlayers=[];
+            RecordingEngine.playRecording=()=>new Promise(resolve=>pendingTestPlayers.push(resolve));
+            const container=document.createElement('div');
+            container.innerHTML='<button id="savedA">Play A</button><div id="miniPlayer_1"></div><button id="savedB">Play B</button><div id="miniPlayer_2"></div>';
+            document.body.appendChild(container);
+            playRecordingInline(1,document.getElementById('savedA'));
+            playRecordingInline(2,document.getElementById('savedB'));
+            window.playerB=makeTestRecordingAudio();
+            pendingTestPlayers[1](playerB);
+        }''')
+        self.page.wait_for_function('_recordingMiniPlayer === playerB')
+        self.page.evaluate('window.playerA=makeTestRecordingAudio(); pendingTestPlayers[0](playerA)')
+        self.page.wait_for_function('playerA.paused')
+        self.assertTrue(self.page.evaluate('_recordingMiniPlayer === playerB && !playerB.paused'))
+        self.assertEqual(self.page.locator('#miniPlayer_1 .recording-seek').count(), 0)
+        self.assertEqual(self.page.locator('#miniPlayer_2 .recording-seek').count(), 1)
+        self.page.evaluate('stopRecordingMiniPlayer()')
+        self.assertEqual(self.page.locator('#miniPlayer_2 .recording-seek').count(), 0)
+
+    def test_native_audio_can_pause_and_seek_without_counting_skipped_sections(self):
+        import base64
+        import io
+        import wave
+        wav = io.BytesIO()
+        with wave.open(wav, 'wb') as recording:
+            recording.setnchannels(1)
+            recording.setsampwidth(2)
+            recording.setframerate(8000)
+            recording.writeframes(b'\x00\x00' * 24000)
+        self.open_story()
+        self.listen()
+        self.page.evaluate('Object.assign(RecordingEngine, originalRecordingMethods)')
+        self.page.evaluate("""async encoded => {
+            const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+            storyRecordingId=await RecordingEngine.saveRecording({storyId:7,storyTitle:'Test',level:'A',duration:3,mimeType:'audio/wav'},new Blob([bytes],{type:'audio/wav'}));
+            readingAttempts=1; updateStoryFlow();
+        }""", base64.b64encode(wav.getvalue()).decode())
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio && storyReviewAudio.currentTime > 0.1')
+        self.page.locator('#storyActionBtn').click()
+        paused_at = self.page.evaluate('storyReviewAudio.currentTime')
+        self.page.wait_for_timeout(150)
+        self.assertAlmostEqual(self.page.evaluate('storyReviewAudio.currentTime'), paused_at, delta=0.05)
+        seek = self.page.locator('#storyPlaybackTimeline .recording-seek')
+        seek.evaluate("e => { e.value=2; e.dispatchEvent(new Event('input', {bubbles:true})); }")
+        self.page.wait_for_function('storyReviewAudio.currentTime >= 2 && !storyReviewAudio.seeking')
+        self.assertTrue(self.page.evaluate('storyReviewAudio.paused'))
+        seek.evaluate("e => { e.value=1.5; e.dispatchEvent(new Event('input', {bubbles:true})); }")
+        self.page.wait_for_function('storyReviewAudio.currentTime < 1.8 && !storyReviewAudio.seeking')
+        self.page.locator('#storyActionBtn').click()
+        self.page.evaluate('storyReviewAudio.playbackRate=8')
+        self.page.wait_for_function('storyReviewAudio === null')
+        self.assert_unlocked(False)
+        self.page.locator('#storyActionBtn').click()
+        self.page.wait_for_function('storyReviewAudio !== null')
+        self.page.evaluate('storyReviewAudio.playbackRate=8')
+        self.page.wait_for_function('questionsUnlocked')
         self.assert_unlocked()
 
     def test_star_awards_are_not_lost_between_tabs(self):
