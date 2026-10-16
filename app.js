@@ -5969,6 +5969,19 @@ function buildUI() {
 
 function updateReadingButton() { updateStoryFlow(); }
 
+function updateNextActionGuidance() {
+    var practice = document.getElementById('practiceScreen');
+    var button = document.getElementById('storyActionBtn');
+    if (!practice || !button) return;
+    var busy = recordingStarting || recordingSaving || storyReviewLoading;
+    var storyInProgress = !questionsUnlocked || timerRunning || storyReviewPlaying || busy;
+    var canAdvance = !button.disabled && !busy && (timerRunning ? timerSeconds >= 8
+        : storyReviewPlaying ? storyReviewAudio && storyReviewAudio.paused
+        : !questionsUnlocked && !storyAudioActive);
+    button.classList.toggle('guide-next-action', !!canAdvance);
+    practice.dataset.guidePhase = storyInProgress ? 'story' : 'questions';
+}
+
 function practiceContentIsVisible() {
     var practice = document.getElementById('practiceScreen');
     var vocabulary = document.getElementById('vocabModal');
@@ -6036,6 +6049,7 @@ function updateStoryFlow() {
     button.innerHTML = '<span class="btn-icon">' + (storyReviewPlaying ? (reviewPaused ? '▶' : '⏸') : timerRunning || storyAudioActive ? '⏹' : step === 'read' ? '🎙️' : '🔊') +
         '</span><span class="btn-text">' + label + '</span>';
     status.textContent = storyStepError || message;
+    updateNextActionGuidance();
     document.querySelectorAll('.story-steps li').forEach(function(item) {
         var name = item.getAttribute('data-step');
         var completed = name === 'listen' ? storyListened : name === 'read' ? readingAttempts >= REQUIRED_READINGS : storyReviewComplete;
@@ -6102,6 +6116,7 @@ function updateTimerDisplay() {
     
     var timerTime = document.getElementById('timerTime');
     if (timerTime) timerTime.textContent = timeStr;
+    updateNextActionGuidance();
 }
 
 function stopTimer() {

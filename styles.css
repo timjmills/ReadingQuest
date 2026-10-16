@@ -6352,3 +6352,28 @@
             color: #fca5a5;
         }
 
+        /* Guide students to the next available action without moving the button. */
+        :is(
+            #storyActionBtn.guide-next-action,
+            #vocabModal .vocab-continue-btn,
+            #vocabModal .vocab-quiz-word-btn,
+            #practiceScreen[data-guide-phase="questions"] #answerArea:not(:has(.answer-option.selected)) .answer-option,
+            #practiceScreen[data-guide-phase="questions"] :is(#checkBtn, #nextBtn, #paintCheckBtn, .pos-game-pick-btn),
+            #practiceScreen[data-guide-phase="questions"] .pos-paint-palette:not(:has(.active)) .pos-paint-palette-btn,
+            #practiceScreen .too-fast-popup.show .too-fast-ok-btn
+        ):not(:disabled):not(.hidden) {
+            outline: 3px solid #facc15;
+            outline-offset: 3px;
+            box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.3), 0 0 18px rgba(250, 204, 21, 0.6);
+            animation: var(--next-action-animation, next-action-yellow-glow 1.8s ease-in-out infinite);
+        }
+
+        @keyframes next-action-yellow-glow {
+            0%, 100% { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.3), 0 0 14px rgba(250, 204, 21, 0.45); }
+            50% { box-shadow: 0 0 0 7px rgba(250, 204, 21, 0.5), 0 0 26px rgba(250, 204, 21, 0.85); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            :root { --next-action-animation: none; }
+        }
+
