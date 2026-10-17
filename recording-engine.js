@@ -29,6 +29,7 @@ var RecordingEngine = (function() {
     var recordingStartTime = 0;
     var state = 'idle'; // 'idle' | 'recording' | 'playing'
     var currentAudio = null;
+    var playbackGeneration = 0;
     var cleanupTimer = null;
     var autoStopTimer = null;
     var mimeType = '';
@@ -417,6 +418,9 @@ var RecordingEngine = (function() {
     // ========================================
 
     function playRecording(id) {
+        if (state === 'recording') return Promise.reject(new Error('Finish recording before playback.'));
+        stopPlaybackInternal();
+        var generation = playbackGeneration;
         return openDatabase().then(function(database) {
             return new Promise(function(resolve, reject) {
                 var tx = database.transaction(STORE_NAME, 'readonly');
@@ -424,38 +428,45 @@ var RecordingEngine = (function() {
                 var request = store.get(id);
 
                 request.onsuccess = function() {
+                    if (generation !== playbackGeneration) {
+                        reject(new Error('Playback canceled.'));
+                        return;
+                    }
                     var record = request.result;
                     if (!record || !record.blob) {
                         reject(new Error('Recording not found.'));
                         return;
                     }
 
-                    // Stop any current playback first
-                    stopPlaybackInternal();
-
                     var url = URL.createObjectURL(record.blob);
-                    currentAudio = new Audio(url);
+                    var audio = new Audio(url);
+                    // MediaRecorder WebM files may report Infinity for duration.
+                    // Keep the saved duration available for the seek bar.
+                    audio._recordingDuration = record.duration;
+                    currentAudio = audio;
                     state = 'playing';
 
-                    currentAudio.onended = function() {
+                    audio.onended = function() {
                         URL.revokeObjectURL(url);
-                        state = 'idle';
-                        currentAudio = null;
+                        if (currentAudio === audio) { state = 'idle'; currentAudio = null; }
                     };
 
-                    currentAudio.onerror = function() {
+                    audio.onerror = function() {
                         URL.revokeObjectURL(url);
-                        state = 'idle';
-                        currentAudio = null;
+                        if (currentAudio === audio) { state = 'idle'; currentAudio = null; }
                         reject(new Error('Failed to play recording.'));
                     };
 
-                    currentAudio.play().then(function() {
-                        resolve(currentAudio);
+                    audio.play().then(function() {
+                        if (generation !== playbackGeneration) {
+                            audio.pause();
+                            reject(new Error('Playback canceled.'));
+                            return;
+                        }
+                        resolve(audio);
                     }).catch(function(err) {
                         URL.revokeObjectURL(url);
-                        state = 'idle';
-                        currentAudio = null;
+                        if (currentAudio === audio) { state = 'idle'; currentAudio = null; }
                         reject(new Error('Playback failed: ' + err.message));
                     });
                 };
@@ -468,16 +479,19 @@ var RecordingEngine = (function() {
     }
 
     function stopPlaybackInternal() {
+        playbackGeneration++;
         if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-            // Revoke the object URL if we can find it
-            if (currentAudio.src && currentAudio.src.indexOf('blob:') === 0) {
-                URL.revokeObjectURL(currentAudio.src);
-            }
+            var audio = currentAudio;
             currentAudio = null;
+            audio.pause();
+            audio.currentTime = 0;
+            // Revoke the object URL if we can find it
+            if (audio.src && audio.src.indexOf('blob:') === 0) {
+                URL.revokeObjectURL(audio.src);
+            }
+            audio.dispatchEvent(new Event('recordingstop'));
         }
-        state = 'idle';
+        if (state === 'playing') state = 'idle';
     }
 
     function stopPlayback() {

@@ -3,6 +3,78 @@
 // ========================================
 var ttsSpeed = 1.0;
 
+function randomAnswerIndex(count) {
+    if (count <= 1) return 0;
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        var value = new Uint32Array(1);
+        var limit = Math.floor(4294967296 / count) * count;
+        do { window.crypto.getRandomValues(value); } while (value[0] >= limit);
+        return value[0] % count;
+    }
+    return Math.min(count - 1, Math.floor(Math.random() * count));
+}
+
+function shuffleAnswerItems(items) {
+    var shuffled = items.slice();
+    for (var i = shuffled.length - 1; i > 0; i--) {
+        var j = randomAnswerIndex(i + 1);
+        var item = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = item;
+    }
+    return shuffled;
+}
+
+function buildAnswerPositionPlan(choiceCount, questionCount) {
+    var positions = [];
+    var offset = randomAnswerIndex(choiceCount);
+    for (var i = 0; i < questionCount; i++) positions.push((i + offset) % choiceCount);
+    // Balance positions across the quiz, then mix their order. This avoids
+    // always choosing one side without teaching a predictable alternating pattern.
+    return shuffleAnswerItems(positions);
+}
+
+function shuffledAnswerIndices(choiceCount, correctIndex, correctPosition) {
+    var indices = [];
+    for (var i = 0; i < choiceCount; i++) indices.push(i);
+    if (Number.isInteger(correctPosition) && correctPosition >= 0 && correctPosition < choiceCount) {
+        indices.splice(correctIndex, 1);
+        indices = shuffleAnswerItems(indices);
+        indices.splice(correctPosition, 0, correctIndex);
+        return indices;
+    }
+    return shuffleAnswerItems(indices);
+}
+
+var readingTextSizeStep = 0;
+
+function applyReadingTextSize() {
+    document.documentElement.style.setProperty('--reading-text-scale', 1 + readingTextSizeStep * 0.1);
+    var smaller = document.getElementById('decreaseTextBtn');
+    var larger = document.getElementById('increaseTextBtn');
+    if (smaller) smaller.disabled = readingTextSizeStep <= -2;
+    if (larger) larger.disabled = readingTextSizeStep >= 6;
+}
+
+function changeReadingTextSize(direction) {
+    readingTextSizeStep = Math.max(-2, Math.min(6, readingTextSizeStep + direction));
+    applyReadingTextSize();
+    try {
+        localStorage.setItem('readingQuestTextSize', readingTextSizeStep);
+    } catch (err) {
+        console.warn('Could not save text size:', err.message);
+    }
+}
+
+function loadReadingTextSize() {
+    try {
+        var saved = localStorage.getItem('readingQuestTextSize');
+        var step = Number(saved);
+        if (saved !== null && Number.isInteger(step) && step >= -2 && step <= 6) readingTextSizeStep = step;
+    } catch (err) {
+        console.warn('Could not load text size:', err.message);
+    }
+    applyReadingTextSize();
+}
+
 var levelOrder = ['aa', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
 
 function setTTSSpeed(speed) {
@@ -1582,9 +1654,28 @@ function getStoryVocabulary(storyText, storyLevel, storyId) {
 
 // getStoryVocabulary replaced - see storyVocabDB above
 
+function partOfSpeechLabel(pos) {
+    var explanations = {
+        noun: 'names a person, place, thing, or idea',
+        verb: 'shows an action or being',
+        adjective: 'describes a noun',
+        adverb: 'tells how, when, where, or how much',
+        pronoun: 'takes the place of a noun',
+        preposition: 'shows place, time, or direction',
+        conjunction: 'joins words or ideas'
+    };
+    return pos.split('/').map(function(term) {
+        term = term.trim().toLowerCase();
+        if (term === 'adj') term = 'adjective';
+        var label = term.charAt(0).toUpperCase() + term.slice(1);
+        return label + (explanations[term] ? ' (' + explanations[term] + ')' : '');
+    }).join(' / ');
+}
+
 function showVocabularyPreTeach(story, callback) {
     var vocab = getStoryVocabulary(story.text, story.level, story.id);
     window._vocabQuizData = vocab;
+    window._vocabQuizLevel = story.level;
 
     if (vocab.length === 0) {
         callback();
@@ -1615,7 +1706,7 @@ function showVocabularyPreTeach(story, callback) {
         html += '<div class="vocab-header-row">';
         html += '<span class="vocab-word">' + v.word.charAt(0).toUpperCase() + v.word.slice(1) + '</span>';
         if (v.pos) {
-            html += '<span class="vocab-pos-badge" style="background:' + posColor + '">' + v.pos + '</span>';
+            html += '<span class="vocab-pos-badge" style="background:' + posColor + '">' + partOfSpeechLabel(v.pos) + '</span>';
         }
         html += '<button class="vocab-speak-btn" onclick="speakVocabWord(\'' + v.word + '\', \'' + v.def.replace(/'/g, "'") + '\')">🔊</button>';
         html += '</div>';
@@ -1642,6 +1733,9 @@ var vocabQuizWords = [];
 var vocabQuizIndex = 0;
 var vocabQuizScore = 0;
 var vocabQuizAttempts = {};
+var vocabAnswerPlanWords = null;
+var vocabAnswerPlanChoices = 0;
+var vocabAnswerPositions = [];
 
 function startVocabQuiz() {
     vocabQuizWords = (window._vocabQuizData || []).slice();
@@ -1668,21 +1762,32 @@ function displayVocabQuizQuestion() {
 
     var current = vocabQuizWords[vocabQuizIndex];
     var total = vocabQuizWords.length;
+    if (!current) { showVocabQuizResults(); return; }
 
-    // Shuffle button order differently from definition order
+    // Correct-answer positions are planned independently of definition order.
     var shuffledWords = vocabQuizWords.slice();
-    for (var i = shuffledWords.length - 1; i > 0; i--) {
-        var j = Math.floor(Math.random() * (i + 1));
-        var tmp = shuffledWords[i];
-        shuffledWords[i] = shuffledWords[j];
-        shuffledWords[j] = tmp;
+    var earlyLevel = ['aa', 'A', 'B', 'C'].indexOf(window._vocabQuizLevel) !== -1;
+    if (earlyLevel) {
+        var otherWords = vocabQuizWords.filter(function(v) { return v.word !== current.word; });
+        var otherWord = otherWords.length
+            ? otherWords[randomAnswerIndex(otherWords.length)]
+            : { word: current.word === 'cat' ? 'sun' : 'cat' };
+        shuffledWords = [current, otherWord];
     }
+    if (vocabAnswerPlanWords !== vocabQuizWords || vocabAnswerPlanChoices !== shuffledWords.length) {
+        vocabAnswerPlanWords = vocabQuizWords;
+        vocabAnswerPlanChoices = shuffledWords.length;
+        vocabAnswerPositions = buildAnswerPositionPlan(shuffledWords.length, total);
+    }
+    var correctWordIndex = shuffledWords.findIndex(function(v) { return v.word === current.word; });
+    shuffledWords = shuffledAnswerIndices(shuffledWords.length, correctWordIndex, vocabAnswerPositions[vocabQuizIndex])
+        .map(function(index) { return shuffledWords[index]; });
 
     var escapedDef = current.def.replace(/'/g, "\\'");
     var html = '<div class="vocab-quiz">';
     html += '<div class="vocab-quiz-progress">Word ' + (vocabQuizIndex + 1) + ' of ' + total + '</div>';
     html += '<div class="vocab-quiz-score-bar">Score: ' + vocabQuizScore + '/' + (vocabQuizIndex) + '</div>';
-    html += '<div class="vocab-quiz-prompt">Which word matches this definition?</div>';
+    html += '<div class="vocab-quiz-prompt">' + (earlyLevel ? 'Which word means this?' : 'Which word matches this definition?') + '</div>';
     html += '<div class="vocab-quiz-def-card">';
     html += '<div class="quiz-def-label">Definition <button class="vocab-quiz-speak-btn" onclick="speakText(\'' + escapedDef + '\', this)" title="Listen to definition">🔊</button></div>';
     html += '<div class="quiz-def-text">' + current.def + '</div>';
@@ -1704,8 +1809,10 @@ function displayVocabQuizQuestion() {
     modal.querySelector('.modal-body').innerHTML = html;
 
     // Auto-speak the definition for the current question
+    var quizSession = readingSession;
+    var quizQuestionIndex = vocabQuizIndex;
     setTimeout(function() {
-        speakText(current.def);
+        if (quizSession === readingSession && vocabQuizIndex === quizQuestionIndex && modal.style.display !== 'none') speakText(current.def);
     }, 300);
 }
 
@@ -1722,7 +1829,10 @@ function checkVocabQuizAnswer(selectedWord, btnEl) {
         // Speak the correct word so the student hears the pronunciation
         speakText(correct);
         if (typeof FocusMonitor !== 'undefined' && FocusMonitor.resetIdle) FocusMonitor.resetIdle();
+        var quizSession = readingSession;
+        var quizQuestionIndex = vocabQuizIndex;
         setTimeout(function() {
+            if (quizSession !== readingSession || vocabQuizIndex !== quizQuestionIndex || document.getElementById('vocabModal').style.display === 'none') return;
             vocabQuizIndex++;
             if (vocabQuizIndex >= vocabQuizWords.length) {
                 showVocabQuizResults();
@@ -1780,15 +1890,22 @@ function closeVocabModal() {
 // FEATURE 5: HIGHLIGHT-AS-READ SYNC
 // ========================================
 var isHighlightReading = false;
+var speechGeneration = 0;
 var highlightWordSpans = [];
 var currentWordIndex = 0;
 
 function speakWithHighlight(text, containerSelector) {
     if (!window.speechSynthesis) {
+        storyAudioActive = false;
+        storyStepError = 'Story audio is not available in this browser. Ask your teacher for help.';
+        updateStoryFlow();
         showToast('Text-to-speech not available');
         return;
     }
     
+    var speechToken = ++speechGeneration;
+    isSpeaking = false;
+    isHighlightReading = false;
     window.speechSynthesis.cancel();
     if (highlightTimer) {
         clearInterval(highlightTimer);
@@ -1819,6 +1936,7 @@ function speakWithHighlight(text, containerSelector) {
     boundaryEventFired = false;
     
     var utterance = new SpeechSynthesisUtterance(text);
+    var listenSession = readingSession;
     utterance.rate = ttsSpeed;
     utterance.pitch = 1;
     
@@ -1835,6 +1953,7 @@ function speakWithHighlight(text, containerSelector) {
     
     // Word boundary event for highlighting (may not fire in all browsers/voices)
     utterance.onboundary = function(event) {
+        if (listenSession !== readingSession || speechToken !== speechGeneration) return;
         if (event.name === 'word' && isHighlightReading) {
             boundaryEventFired = true;
             // Clear fallback timer if boundary events are working
@@ -1858,7 +1977,7 @@ function speakWithHighlight(text, containerSelector) {
         // Start fallback timer-based highlighting
         // This will be cleared if onboundary events fire
         setTimeout(function() {
-            if (!boundaryEventFired && isHighlightReading) {
+            if (listenSession === readingSession && speechToken === speechGeneration && !boundaryEventFired && isHighlightReading) {
                 // onboundary not supported, use timer fallback
                 startTimerHighlighting(msPerWord);
             }
@@ -1866,8 +1985,10 @@ function speakWithHighlight(text, containerSelector) {
     };
     
     utterance.onend = function() {
+        if (listenSession !== readingSession || speechToken !== speechGeneration) return;
         var finished = isHighlightReading;
         isHighlightReading = false;
+        storyAudioActive = false;
         if (finished && containerSelector === '#storyText') markStoryListened();
         if (highlightTimer) {
             clearInterval(highlightTimer);
@@ -1887,7 +2008,11 @@ function speakWithHighlight(text, containerSelector) {
     };
     
     utterance.onerror = function() {
+        if (listenSession !== readingSession || speechToken !== speechGeneration) return;
         isHighlightReading = false;
+        storyAudioActive = false;
+        storyStepError = 'Audio could not play. Try Listen again or ask your teacher.';
+        updateStoryFlow();
         if (highlightTimer) {
             clearInterval(highlightTimer);
             highlightTimer = null;
@@ -1954,6 +2079,7 @@ function resumeTimerHighlighting() {
 }
 
 function stopHighlightReading() {
+    speechGeneration++;
     isHighlightReading = false;
     window.speechSynthesis.cancel();
     if (highlightTimer) {
@@ -2003,6 +2129,8 @@ function showToast(message) {
 // INITIALIZATION
 // ========================================
 function initNewFeatures() {
+    loadEarnedStars();
+    loadReadingTextSize();
     loadDarkMode();
     loadTTSSpeed();
     loadAchievements();
@@ -2165,8 +2293,56 @@ var correctCount = 0;
 var currentAnswerStreak = 0;
 var hintCount = 0;
 var totalStars = 0;
+var earnedStarEvents = {};
+
+function updateStarsDisplay() {
+    var display = document.getElementById('totalStars');
+    if (display) display.textContent = totalStars;
+}
+
+function receiveStarEvent(key, value) {
+    if (!key || !key.startsWith('readingQuestStar:') || Object.prototype.hasOwnProperty.call(earnedStarEvents, key)) return;
+    var amount = Number(value);
+    if (!Number.isSafeInteger(amount) || amount <= 0) return;
+    earnedStarEvents[key] = amount;
+    totalStars += amount;
+}
+
+function loadEarnedStars() {
+    try {
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (key && key.startsWith('readingQuestStar:')) receiveStarEvent(key, localStorage.getItem(key));
+        }
+    } catch (err) {
+        console.warn('Could not load earned stars:', err.message);
+    }
+    updateStarsDisplay();
+}
+
+function awardEarnedStar() {
+    var id = window.crypto && typeof window.crypto.randomUUID === 'function'
+        ? window.crypto.randomUUID()
+        : Date.now().toString(36) + '-' + Array.from({length: 4}, function() { return randomAnswerIndex(4294967296).toString(36); }).join('-');
+    var key = 'readingQuestStar:' + id;
+    receiveStarEvent(key, '1');
+    updateStarsDisplay();
+    try {
+        // Immutable award events keep simultaneous tabs from losing points.
+        localStorage.setItem(key, '1');
+    } catch (err) {
+        showToast('Your star was earned, but could not be saved. Keep this page open.');
+    }
+}
+
+window.addEventListener('storage', function(event) {
+    receiveStarEvent(event.key, event.newValue);
+    updateStarsDisplay();
+});
 var selectedAnswerIndex = null;
 var currentAnswerMap = [];  // Maps displayed index to original index
+var storyAnswerPlanQuestions = null;
+var storyAnswerPositions = [];
 var currentPOS = null;  // Current part of speech selection for highlight questions
 var highlightSelections = {};  // Tracks word selections {wordIndex: 'noun'|'verb'|'adjective'|'adverb'}
 
@@ -2205,10 +2381,82 @@ var timerSeconds = 0;
 var currentWordCount = 0;
 var questionsUnlocked = false;
 
-// What a pupil must do before the questions unlock (default: read once, listen once)
+// One story listen, one recorded reading, then one full listen to that recording.
 var REQUIRED_READINGS = 1;
 var REQUIRE_LISTEN = true;
 var storyListened = false;
+var storyReviewComplete = false;
+var storyRecordingId = null;
+var storyNeedsRecording = false;
+var optionalRecordingReview = false;
+var storyAudioActive = false;
+var storyReviewPlaying = false;
+var storyReviewLoading = false;
+var storyReviewGeneration = 0;
+var storyReviewAudio = null;
+var recordingStarting = false;
+var recordingSaving = false;
+var pendingRecordingSession = null;
+var storyStepError = '';
+var readingSession = 0;
+var practiceViewState = '';
+var practiceFocusFrame = null;
+var storyReadingProgress = {};
+function refreshReadingProgress() {
+    try {
+        // Read the earlier combined format so existing unlocks remain available.
+        var saved = null;
+        try {
+            saved = JSON.parse(localStorage.getItem('readingQuestReadingProgress'));
+        } catch (err) {
+            console.warn('Could not load older reading progress:', err.message);
+        }
+        if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+            Object.keys(saved).forEach(function(id) {
+                var entry = saved[id];
+                if (!entry || typeof entry !== 'object') return;
+                var previous = storyReadingProgress[id] || {};
+                ['read', 'listened', 'reviewed', 'unlocked'].forEach(function(flag) {
+                    if (entry[flag] === true) previous[flag] = true;
+                });
+                storyReadingProgress[id] = previous;
+            });
+        }
+        // Each completion flag has its own key. Concurrent tabs cannot overwrite
+        // another story or erase a completed step with an older progress snapshot.
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            var match = /^readingQuestReadingProgress:(\d+):(read|listened|reviewed|unlocked)$/.exec(key);
+            if (match && localStorage.getItem(key) === 'true') {
+                var progress = storyReadingProgress[match[1]] || {};
+                progress[match[2]] = true;
+                storyReadingProgress[match[1]] = progress;
+            }
+        }
+    } catch (err) {
+        console.warn('Could not load saved reading progress:', err.message);
+    }
+}
+refreshReadingProgress();
+
+function saveReadingProgress() {
+    if (currentStoryId === null) return;
+    refreshReadingProgress();
+    var previous = storyReadingProgress[currentStoryId] || {};
+    var progress = storyReadingProgress[currentStoryId] = {
+        read: previous.read === true || readingAttempts >= REQUIRED_READINGS,
+        listened: previous.listened === true || storyListened,
+        reviewed: previous.reviewed === true || storyReviewComplete,
+        unlocked: previous.unlocked === true || questionsUnlocked
+    };
+    try {
+        ['read', 'listened', 'reviewed', 'unlocked'].forEach(function(flag) {
+            if (progress[flag]) localStorage.setItem('readingQuestReadingProgress:' + currentStoryId + ':' + flag, 'true');
+        });
+    } catch (err) {
+        showToast('Progress could not be saved. Keep this page open to keep your questions unlocked.');
+    }
+}
 
 // Recording state
 var recordingEnabled = true; // always record readings
@@ -2308,30 +2556,10 @@ function resetPauseButton() {
         pauseBtn.classList.remove('paused');
     }
 }
-// Override stopSpeaking to reset pause button
-var originalStopSpeaking = typeof stopSpeaking === 'function' ? stopSpeaking : function(){};
-stopSpeaking = function() {
-    if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-    }
-    isSpeaking = false;
-    isPaused = false;
-    resetPauseButton();
-    
-    var speakBtns = document.querySelectorAll('.speaking');
-    for (var i = 0; i < speakBtns.length; i++) {
-        speakBtns[i].classList.remove('speaking');
-    }
-    
-    var speakBtn = document.getElementById('speakBtn');
-    var stopBtn = document.getElementById('stopSpeakBtn');
-    var pauseBtn = document.getElementById('pauseBtn');
-    if (speakBtn) speakBtn.classList.remove('hidden');
-    if (stopBtn) stopBtn.classList.add('hidden');
-    if (pauseBtn) pauseBtn.classList.add('hidden');
-};
-
 function speakText(text, buttonElement) {
+    var speechToken = ++speechGeneration;
+    isHighlightReading = false;
+    if (highlightTimer) { clearInterval(highlightTimer); highlightTimer = null; }
     // Cancel any ongoing speech
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -2367,6 +2595,7 @@ function speakText(text, buttonElement) {
     }
     
     currentUtterance.onend = function() {
+        if (speechToken !== speechGeneration) return;
         isSpeaking = false;
         if (buttonElement) {
             buttonElement.classList.remove('speaking');
@@ -2374,6 +2603,7 @@ function speakText(text, buttonElement) {
     };
     
     currentUtterance.onerror = function() {
+        if (speechToken !== speechGeneration) return;
         isSpeaking = false;
         if (buttonElement) {
             buttonElement.classList.remove('speaking');
@@ -2384,6 +2614,12 @@ function speakText(text, buttonElement) {
 }
 
 function stopSpeaking() {
+    speechGeneration++;
+    // Clear completion flags before cancel: canceled speech must not count as a listen.
+    isSpeaking = false;
+    isHighlightReading = false;
+    storyAudioActive = false;
+    if (highlightTimer) { clearInterval(highlightTimer); highlightTimer = null; }
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
     }
@@ -2409,85 +2645,20 @@ function stopSpeaking() {
         pauseBtn.classList.add('hidden');
         pauseBtn.classList.remove('paused');
     }
+    updateStoryFlow();
 }
 
 function speakStory() {
-    var storyText = document.getElementById('storyText');
-    var speakBtn = document.getElementById('speakBtn');
-    var stopBtn = document.getElementById('stopSpeakBtn');
-    var pauseBtn = document.getElementById('pauseBtn');
-    var highlightBtn = document.getElementById('highlightReadBtn');
-    
-    if (isSpeaking) {
-        stopSpeaking();
-        return;
-    }
-    
-    if (storyText) {
-        // Hide listen and follow along buttons, show pause and stop
-        if (speakBtn) speakBtn.classList.add('hidden');
-        if (highlightBtn) highlightBtn.classList.add('hidden');
-        if (stopBtn) stopBtn.classList.remove('hidden');
-        if (pauseBtn) {
-            pauseBtn.classList.remove('hidden');
-            pauseBtn.innerHTML = '<span style="font-size: 1.2em;">⏸️</span> Pause';
-            pauseBtn.classList.remove('paused');
-        }
-        isPaused = false;
-        isSpeaking = true;
-        
-        speakText(storyText.textContent, speakBtn);
-        
-        // When speech ends, swap buttons back
-        if (currentUtterance) {
-            currentUtterance.onend = function() {
-                var finished = isSpeaking;
-                isSpeaking = false;
-                if (finished) markStoryListened();
-                if (speakBtn) {
-                    speakBtn.classList.remove('speaking');
-                    speakBtn.classList.remove('hidden');
-                }
-                if (highlightBtn) highlightBtn.classList.remove('hidden');
-                if (stopBtn) stopBtn.classList.add('hidden');
-                if (pauseBtn) pauseBtn.classList.add('hidden');
-            };
-        }
-    }
+    if (storyAudioActive) { stopSpeaking(); return; }
+    var story = document.getElementById('storyText');
+    if (!story) return;
+    storyStepError = '';
+    storyAudioActive = true;
+    speakWithHighlight(story.textContent, '#storyText');
+    updateStoryFlow();
 }
 
-function speakStoryWithHighlight() {
-    var storyText = document.getElementById('storyText');
-    var speakBtn = document.getElementById('speakBtn');
-    var stopBtn = document.getElementById('stopSpeakBtn');
-    var pauseBtn = document.getElementById('pauseBtn');
-    var highlightBtn = document.getElementById('highlightReadBtn');
-    
-    if (isSpeaking || isHighlightReading) {
-        stopSpeaking();
-        stopHighlightReading();
-        return;
-    }
-    
-    if (storyText) {
-        // Hide listen and follow along buttons, show pause and stop
-        if (speakBtn) speakBtn.classList.add('hidden');
-        if (highlightBtn) highlightBtn.classList.add('hidden');
-        if (stopBtn) stopBtn.classList.remove('hidden');
-        if (pauseBtn) {
-            pauseBtn.classList.remove('hidden');
-            pauseBtn.innerHTML = '<span style="font-size: 1.2em;">⏸️</span> Pause';
-            pauseBtn.classList.remove('paused');
-        }
-        isPaused = false;
-        
-        // Use highlight reading
-        speakWithHighlight(storyText.textContent, '#storyText');
-        
-        // Track for achievements
-        updateAchievementProgress('ttsUsed', 1);
-    }
-}
+function speakStoryWithHighlight() { speakStory(); }
 
 function speakQuestion() {
     var questionText = document.getElementById('questionTextContent');
@@ -2531,27 +2702,13 @@ function speakAnswer(index) {
     }
 }
 
-function speakInstructions() {
-    var speakBtn = document.getElementById('speakInstructionsBtn');
-    var text = "Step 1: Press Listen First to hear the story. Step 2: Press Start Reading and read out loud. Step 3: Press Finish Reading when done. Step 4: Listen once and read once to unlock the questions!";
-    
-    if (isSpeaking) {
-        stopSpeaking();
-        return;
-    }
-    
-    speakText(text, speakBtn);
-}
-
-// ========================================
-// BUTTON FUNCTIONS - These are called from onclick
-// ========================================
-
-// toggleDarkMode is defined earlier with achievement tracking
 
 function toggleReadingLog() {
     var m = document.getElementById('readingLogModal');
-    if (m) m.classList.toggle('active');
+    if (m) {
+        m.classList.toggle('active');
+        if (!m.classList.contains('active')) stopRecordingMiniPlayer();
+    }
 }
 
 function switchLogTab(period) {
@@ -2672,6 +2829,17 @@ function closeStory() {
 }
 
 function goHome() {
+    readingSession++;
+    stopStoryStepActivity();
+    stopTimer();
+    if (isRecordingActive && typeof RecordingEngine !== 'undefined') {
+        RecordingEngine.stopRecording().catch(function() {});
+        isRecordingActive = false;
+    }
+    var listenPopup = document.getElementById('listenBackPopup');
+    if (listenPopup) listenPopup.style.display = 'none';
+    closeTooFastPopup();
+    closeReadingOverlays();
     // Stop focus monitoring
     if (typeof FocusMonitor !== 'undefined') FocusMonitor.stop();
 
@@ -2751,7 +2919,7 @@ function checkAnswer() {
     
     if (isCorrect) {
         correctCount++;
-        totalStars++;
+        awardEarnedStar();
         currentAnswerStreak = (currentAnswerStreak || 0) + 1;
         updateAchievementProgress('streak', currentAnswerStreak);
         updateAchievementProgress('questionType', q.category);
@@ -2786,8 +2954,11 @@ function checkAnswer() {
     
     if (isCorrect) {
         // Auto-proceed to next question after delay
+        var answerSession = readingSession;
+        var answeredQuestionIndex = questionIndex;
         setTimeout(function() {
-            nextQuestion();
+            if (readingSession === answerSession && questionIndex === answeredQuestionIndex &&
+                    !document.getElementById('practiceScreen').classList.contains('hidden')) nextQuestion();
         }, 1500);
     } else {
         // Show next button for incorrect answers
@@ -3035,9 +3206,9 @@ function startSpecificStory(storyId) {
     hintCount = 0;
     hasAnswered = false;
     selectedAnswerIndex = null;
-    resetReadingAttempts();
 
     currentStoryId = selectedStory.id;
+    resetReadingAttempts();
 
     // Start logging
     startStoryLog(selectedStory.id, selectedStory.title, selectedStory.level, selectedStory.wordCount);
@@ -3095,9 +3266,6 @@ function startPractice() {
     hasAnswered = false;
     selectedAnswerIndex = null;
     
-    // Reset reading attempts for new practice session
-    resetReadingAttempts();
-    
     var valid = LEVELS.slice(minLevel, maxLevel + 1);
     
     // Step 1: Find all valid stories
@@ -3125,6 +3293,7 @@ function startPractice() {
     var randomIndex = Math.floor(Math.random() * pool.length);
     var selectedStory = pool[randomIndex];
     currentStoryId = selectedStory.id;
+    resetReadingAttempts();
     console.log('DEBUG: Selected story ID:', currentStoryId, 'Level:', selectedStory.level, 'Title:', selectedStory.title);
     
     // Start logging this story
@@ -3204,9 +3373,7 @@ function displayQuestion() {
     if (pauseBtn) pauseBtn.classList.add('hidden');
     
     // Stop any ongoing speech
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-    isHighlightReading = false;
-    isSpeaking = false;
+    stopSpeaking();
     
     // Start timing this question
     startQuestionTimer();
@@ -3249,7 +3416,12 @@ function displayQuestion() {
     var t = document.getElementById('storyTitle');
     var x = document.getElementById('storyText');
     if (t) t.innerHTML = '<span>' + (story ? story.title : '') + '</span>';
-    if (x) x.textContent = story ? story.text : '';
+    if (x) {
+        x.textContent = story ? story.text : '';
+        var textWordCount = story ? story.text.trim().split(/\s+/).length : 0;
+        var defaultTextSize = textWordCount <= 75 ? '1.9rem' : textWordCount <= 150 ? '1.65rem' : '1.45rem';
+        x.style.setProperty('--story-text-base', defaultTextSize);
+    }
     
     var qn = document.getElementById('questionNumber');
     var qb = document.getElementById('questionBadge');
@@ -3267,7 +3439,7 @@ function displayQuestion() {
         
         if (q.type === 'truefalse') {
             // True/False - randomly swap positions
-            var tfFirst = Math.random() < 0.5;
+            var tfFirst = randomAnswerIndex(2) === 0;
             currentAnswerMap = tfFirst ? [0, 1] : [1, 0];
             var opts = tfFirst ? ['True', 'False'] : ['False', 'True'];
             var syms = tfFirst ? ['✓', '✗'] : ['✗', '✓'];
@@ -3384,13 +3556,15 @@ function displayQuestion() {
         
         // Now render the options (for non-truefalse questions)
         if (q.type !== 'truefalse' && displayOptions.length > 0) {
-            // Shuffle display options
-            var indices = [];
-            for (var i = 0; i < displayOptions.length; i++) indices.push(i);
-            for (var i = indices.length - 1; i > 0; i--) {
-                var j = Math.floor(Math.random() * (i + 1));
-                var t = indices[i]; indices[i] = indices[j]; indices[j] = t;
+            var correctPosition;
+            if (story && ['aa', 'A', 'B', 'C'].indexOf(story.level) !== -1 && displayOptions.length === 2) {
+                if (storyAnswerPlanQuestions !== currentQuestions) {
+                    storyAnswerPlanQuestions = currentQuestions;
+                    storyAnswerPositions = buildAnswerPositionPlan(2, currentQuestions.length);
+                }
+                correctPosition = storyAnswerPositions[questionIndex];
             }
+            var indices = shuffledAnswerIndices(displayOptions.length, correctIndex, correctPosition);
             currentAnswerMap = indices;
             
             // For sequence/matching, update q.correct to reflect original correct position
@@ -3462,9 +3636,18 @@ function displayQuestion() {
     var pt = document.getElementById('progressText');
     if (pf) pf.style.width = pct + '%';
     if (pt) pt.textContent = 'Question ' + (questionIndex + 1) + ' of ' + currentQuestions.length;
+    focusPracticeContent();
 }
 
 function showResults() {
+    readingSession++;
+    stopStoryStepActivity();
+    stopSpeaking();
+    stopTimer();
+    if (isRecordingActive && typeof RecordingEngine !== 'undefined') {
+        RecordingEngine.stopRecording().catch(function() {});
+        isRecordingActive = false;
+    }
     // Stop focus monitoring
     if (typeof FocusMonitor !== 'undefined') FocusMonitor.stop();
 
@@ -3673,11 +3856,10 @@ function renderSimplePOSGame(q, area, level) {
 
     // Build pick buttons
     var btnColors = {noun: 'noun-pick', verb: 'verb-pick', adjective: 'adj-pick', adverb: 'adv-pick'};
-    var btnLabels = {noun: 'Noun', verb: 'Verb', adjective: 'Adjective', adverb: 'Adverb'};
     var buttonsHtml = '<div class="pos-game-buttons">';
     for (var b = 0; b < allowed.length; b++) {
         var p = allowed[b];
-        buttonsHtml += '<button class="pos-game-pick-btn ' + btnColors[p] + '" onclick="posGamePick(\'' + p + '\')">' + btnLabels[p] + '</button>';
+        buttonsHtml += '<button class="pos-game-pick-btn ' + btnColors[p] + '" onclick="posGamePick(\'' + p + '\')">' + partOfSpeechLabel(p) + '</button>';
     }
     buttonsHtml += '</div>';
 
@@ -3950,11 +4132,10 @@ function renderAdvancedPOSGame(q, area, level) {
 
     // Build palette buttons
     var btnColors = {noun: 'noun', verb: 'verb', adjective: 'adjective', adverb: 'adverb'};
-    var btnLabels = {noun: 'Noun', verb: 'Verb', adjective: 'Adjective', adverb: 'Adverb'};
     var paletteHtml = '<div class="pos-paint-palette">';
     for (var b = 0; b < allowed.length; b++) {
         var p = allowed[b];
-        paletteHtml += '<button class="pos-paint-palette-btn ' + btnColors[p] + '" id="paintPalette_' + p + '" onclick="selectPaintPOS(\'' + p + '\')">' + btnLabels[p] + '</button>';
+        paletteHtml += '<button class="pos-paint-palette-btn ' + btnColors[p] + '" id="paintPalette_' + p + '" onclick="selectPaintPOS(\'' + p + '\')">' + partOfSpeechLabel(p) + '</button>';
     }
     paletteHtml += '</div>';
 
@@ -4549,7 +4730,7 @@ function toggleActivityLog() {
         modal.classList.toggle('active');
         if (isOpening) {
             updateActivityLogDisplay();
-        }
+        } else stopRecordingMiniPlayer();
     }
 }
 
@@ -4715,7 +4896,7 @@ function updateActivityLogDisplay() {
                 RecordingEngine.getRecordingsForStory(sid).then(function(recs) {
                     for (var ri = 0; ri < recs.length; ri++) {
                         if (recs[ri].attemptNumber === attempt) {
-                            cell.innerHTML = '<span style="cursor:pointer;" title="Play recording" onclick="playRecordingInline(' + recs[ri].id + ', this)">🎙️</span>';
+                            cell.innerHTML = '<button type="button" class="recording-play-btn" title="Play recording" onclick="playRecordingInline(' + recs[ri].id + ', this)"><span class="rec-play-icon">▶</span></button><div class="mini-player-slot"></div>';
                             return;
                         }
                     }
@@ -5783,42 +5964,145 @@ function buildUI() {
 // READING TIMER FUNCTIONS
 // ========================================
 
-function startTimer() {
-    if (timerRunning) return;
+function updateReadingButton() { updateStoryFlow(); }
 
-    // Clear any existing interval first
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
+function updateNextActionGuidance() {
+    var practice = document.getElementById('practiceScreen');
+    var button = document.getElementById('storyActionBtn');
+    if (!practice || !button) return;
+    var busy = recordingStarting || recordingSaving || storyReviewLoading;
+    var storyInProgress = !questionsUnlocked || timerRunning || storyReviewPlaying || busy;
+    var canAdvance = !button.disabled && !busy && (timerRunning ? timerSeconds >= 8
+        : storyReviewPlaying ? storyReviewAudio && storyReviewAudio.paused
+        : !questionsUnlocked && !storyAudioActive);
+    button.classList.toggle('guide-next-action', !!canAdvance);
+    practice.dataset.guidePhase = storyInProgress ? 'story' : 'questions';
+}
+
+function practiceContentIsVisible() {
+    var practice = document.getElementById('practiceScreen');
+    var vocabulary = document.getElementById('vocabModal');
+    var teacherDialog = document.getElementById('teacherSkipDialog');
+    return practice && !practice.classList.contains('hidden') &&
+        (!vocabulary || getComputedStyle(vocabulary).display === 'none') &&
+        (!teacherDialog || !teacherDialog.open);
+}
+
+function focusPracticeContent(targetId) {
+    if (!practiceContentIsVisible()) return false;
+    var session = readingSession;
+    if (practiceFocusFrame !== null) cancelAnimationFrame(practiceFocusFrame);
+    // Wait until the new step, story text, and question layout have rendered.
+    practiceFocusFrame = requestAnimationFrame(function() {
+        practiceFocusFrame = null;
+        if (session !== readingSession || !practiceContentIsVisible()) return;
+        var readingOrListening = timerRunning || recordingStarting || storyReviewPlaying;
+        var target = document.getElementById(targetId || (questionsUnlocked && !readingOrListening ? 'questionCard' : 'storyText'));
+        var toolbar = document.querySelector('.settings-bar');
+        if (!target) return;
+        var offset = toolbar ? Math.max(0, toolbar.getBoundingClientRect().bottom) + 12 : 12;
+        var top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - offset);
+        target.focus({preventScroll: true});
+        window.scrollTo({top: top, behavior: 'auto'});
+    });
+    return true;
+}
+
+function updateStoryFlow() {
+    var button = document.getElementById('storyActionBtn');
+    var status = document.getElementById('storyStepStatus');
+    if (!button || !status) return;
+    var badge = document.getElementById('attempt1');
+    if (badge) badge.classList.toggle('completed', readingAttempts >= REQUIRED_READINGS);
+    var step = timerRunning ? 'read' : questionsUnlocked ? 'ready' : !storyListened ? 'listen'
+        : timerRunning || readingAttempts < REQUIRED_READINGS || storyNeedsRecording ? 'read' : 'review';
+    var busy = recordingStarting || recordingSaving || storyReviewLoading;
+    var practiceChoice = document.getElementById('optionalPracticeChoice');
+    var reviewPaused = storyReviewAudio && storyReviewAudio.paused;
+    if (practiceChoice) practiceChoice.classList.toggle('hidden', !questionsUnlocked || busy || timerRunning || (storyReviewPlaying && !reviewPaused));
+    var listenChoice = document.getElementById('optionalListenChoice');
+    if (listenChoice) listenChoice.disabled = !storyRecordingId;
+    var choice = document.getElementById('optionalPracticeAction');
+    if (choice) choice.value = optionalRecordingReview ? 'listen' : 'read';
+    var label = step === 'listen' ? (storyAudioActive ? 'Stop listening' : 'Listen')
+        : step === 'read' ? (timerRunning ? 'Finish Reading' : 'Read / Record')
+        : step === 'ready' ? (storyReviewPlaying ? (reviewPaused ? 'Resume listening' : 'Pause listening') : optionalRecordingReview ? 'Listen to my recording (Optional)' : 'Read / Record Again (Optional)')
+        : storyReviewPlaying ? (reviewPaused ? 'Resume listening' : 'Pause listening') : 'Listen to my recording';
+    var message = step === 'ready' ? 'Questions are unlocked. You can reread or make another recording if you want.'
+        : step === 'listen' ? (storyAudioActive ? 'Listen to the whole story.' : 'Listen to the story first.')
+        : step === 'read' ? (timerRunning ? 'Read the story aloud. Press Finish Reading when you are done.' : 'Now read the story aloud. Your voice will be recorded.')
+        : 'Listen to your recording from start to finish. Then answer the questions.';
+    if (recordingStarting) { label = 'Connecting microphone…'; message = 'Allow microphone access to record your reading.'; }
+    if (recordingSaving) { label = 'Saving recording…'; message = 'Your recording is being saved.'; }
+    if (storyReviewLoading) { label = 'Loading recording…'; message = 'Getting your recording ready.'; }
+    if (storyReviewPlaying) message = reviewPaused ? 'Your recording is paused. Resume when you are ready.' : 'Listen to your recording. You can pause or use the time bar to go back or skip ahead.';
+    if (step === 'review' && !storyRecordingId && !busy) {
+        message = 'No recording is available. Ask your teacher for help or use the teacher skip.';
     }
+    button.classList.remove('hidden');
+    button.classList.toggle('reading-mode', timerRunning);
+    button.classList.toggle('start-mode', !timerRunning);
+    button.disabled = busy || (step === 'review' && !storyRecordingId);
+    button.innerHTML = '<span class="btn-icon">' + (storyReviewPlaying ? (reviewPaused ? '▶' : '⏸') : timerRunning || storyAudioActive ? '⏹' : step === 'read' ? '🎙️' : '🔊') +
+        '</span><span class="btn-text">' + label + '</span>';
+    status.textContent = storyStepError || message;
+    updateNextActionGuidance();
+    document.querySelectorAll('.story-steps li').forEach(function(item) {
+        var name = item.getAttribute('data-step');
+        var completed = name === 'listen' ? storyListened : name === 'read' ? readingAttempts >= REQUIRED_READINGS : storyReviewComplete;
+        item.classList.toggle('completed', completed || step === 'ready');
+        item.classList.toggle('active', name === step);
+        if (name === step) item.setAttribute('aria-current', 'step');
+        else item.removeAttribute('aria-current');
+    });
+    var phase = readingSession + ':' + step + ':' +
+        (step === 'listen' ? storyAudioActive : step === 'read' ? timerRunning : storyReviewPlaying);
+    // Scroll on transitions, not on timer updates or while the student scrolls to read.
+    if (phase !== practiceViewState && focusPracticeContent()) practiceViewState = phase;
+}
 
+function chooseOptionalPractice(action) {
+    if (!questionsUnlocked || timerRunning || recordingStarting || recordingSaving || storyReviewLoading || (storyReviewPlaying && (!storyReviewAudio || !storyReviewAudio.paused))) return;
+    if (storyReviewPlaying) stopStoryReviewPlayback();
+    optionalRecordingReview = action === 'listen' && storyRecordingId !== null;
+    storyStepError = '';
+    updateStoryFlow();
+}
+
+function advanceStoryStep() {
+    if (recordingStarting || recordingSaving || storyReviewLoading) return;
+    if (questionsUnlocked) {
+        if (optionalRecordingReview && !timerRunning) listenToOwnRecording();
+        else toggleReading();
+        return;
+    }
+    if (!storyListened) { speakStory(); return; }
+    if (timerRunning || readingAttempts < REQUIRED_READINGS || storyNeedsRecording) { toggleReading(); return; }
+    listenToOwnRecording();
+}
+
+function startTimer() {
+    if ((!questionsUnlocked && readingAttempts >= REQUIRED_READINGS && !storyNeedsRecording) || timerRunning || recordingStarting || recordingSaving) return;
+    if (!storyListened && !questionsUnlocked) { storyStepError = 'Listen to the story first.'; updateStoryFlow(); return; }
+    storyStepError = '';
+    if (questionsUnlocked) focusPracticeContent('storyText');
+    if (typeof RecordingEngine === 'undefined' || !RecordingEngine.isSupported()) {
+        storyStepError = 'Recording needs microphone support. Ask your teacher for help or use the teacher skip.';
+        updateStoryFlow(); return;
+    }
+    attemptStartRecording();
+}
+
+function beginReadingTimer() {
+    if (timerInterval) clearInterval(timerInterval);
     timerRunning = true;
     timerSeconds = 0;
-
-    // Update unified button to "Finish" mode
-    var unifiedBtn = document.getElementById('unifiedReadingBtn');
     var inlineTimer = document.getElementById('inlineTimer');
-
-    if (unifiedBtn) {
-        unifiedBtn.classList.remove('start-mode');
-        unifiedBtn.classList.add('reading-mode');
-        unifiedBtn.innerHTML = '<span class="btn-icon">✋</span><span class="btn-text">Finish Reading</span>';
-    }
-
     if (inlineTimer) inlineTimer.style.display = 'flex';
-
-    // Always start recording — retry if permission denied
-    if (typeof RecordingEngine !== 'undefined' && RecordingEngine.isSupported()) {
-        attemptStartRecording();
-    }
-
     updateTimerDisplay();
-
+    updateStoryFlow();
     timerInterval = setInterval(function() {
-        if (timerRunning) {
-            timerSeconds++;
-            updateTimerDisplay();
-        }
+        if (timerRunning) { timerSeconds++; updateTimerDisplay(); }
     }, 1000);
 }
 
@@ -5829,6 +6113,7 @@ function updateTimerDisplay() {
     
     var timerTime = document.getElementById('timerTime');
     if (timerTime) timerTime.textContent = timeStr;
+    updateNextActionGuidance();
 }
 
 function stopTimer() {
@@ -5841,15 +6126,8 @@ function stopTimer() {
     // Stop mic level meter
     stopMicLevelMeter();
 
-    // Update unified button back to "Start" mode
-    var unifiedBtn = document.getElementById('unifiedReadingBtn');
+    updateReadingButton();
     var inlineTimer = document.getElementById('inlineTimer');
-
-    if (unifiedBtn) {
-        unifiedBtn.classList.remove('reading-mode');
-        unifiedBtn.classList.add('start-mode');
-        unifiedBtn.innerHTML = '<span class="btn-icon">▶️</span><span class="btn-text">Start Reading</span>';
-    }
 
     if (inlineTimer) inlineTimer.style.display = 'none';
 }
@@ -5869,193 +6147,250 @@ function closeTooFastPopup() {
 
 function doneReading() {
     if (!timerRunning) return;
-    
-    // Capture the elapsed time BEFORE stopping
-    var elapsedSeconds = timerSeconds;
-    
-    // Now stop the timer
+    var seconds = timerSeconds;
+    var session = readingSession;
+    var storyId = currentStoryId;
+    var optional = questionsUnlocked;
+    var attemptNumber = optional ? readingAttempts + 1 : REQUIRED_READINGS;
+    var story = stories.find(function(item) { return item.id === storyId; });
     stopTimer();
-    
-    // Hide inline timer
-    var inlineTimer = document.getElementById('inlineTimer');
-    if (inlineTimer) {
-        inlineTimer.style.display = 'none';
+    if (!isRecordingActive || typeof RecordingEngine === 'undefined') {
+        storyStepError = 'No recording was captured. Try Read / Record again or ask your teacher.';
+        updateStoryFlow(); return;
     }
-    
-    // Check minimum time requirement (8 seconds)
-    var MIN_READING_TIME = 8;
-    
-    if (elapsedSeconds < MIN_READING_TIME) {
-        // Discard recording if active (too-fast attempt doesn't count)
-        if (isRecordingActive && typeof RecordingEngine !== 'undefined') {
-            RecordingEngine.stopRecording().catch(function() {});
-            isRecordingActive = false;
-            var indicator = document.getElementById('recordingIndicator');
-            if (indicator) indicator.style.display = 'none';
-        }
-        // Show "Too Fast" message
-        showTooFastMessage();
-        // Reset timer for retry but don't count the attempt
+    isRecordingActive = false;
+    var indicator = document.getElementById('recordingIndicator');
+    if (indicator) indicator.style.display = 'none';
+    recordingSaving = true;
+    updateStoryFlow();
+    var wpm = seconds > 0 ? Math.round(currentWordCount / seconds * 60) : 0;
+    RecordingEngine.stopRecording().then(function(result) {
+        if (seconds < 8) return null; // Discard an incomplete reading.
+        return RecordingEngine.saveRecording({
+            storyId: storyId, storyTitle: story ? story.title : '', level: story ? story.level : '',
+            attemptNumber: attemptNumber, duration: result.duration, wpm: wpm, mimeType: result.mimeType
+        }, result.blob);
+    }).then(function(recordingId) {
+        if (session !== readingSession) return;
+        recordingSaving = false;
         timerSeconds = 0;
         updateTimerDisplay();
-        return;
-    }
-    
-    // Valid reading - increment attempts
-    readingAttempts++;
-    
-    // Calculate WPM using captured time
-    var wpm = 0;
-    if (elapsedSeconds > 0 && currentWordCount > 0) {
-        wpm = Math.round((currentWordCount / elapsedSeconds) * 60);
-    }
-    
-    // Track WPM achievement
-    if (wpm > 0) {
-        updateAchievementProgress('wpm', wpm);
-    }
-    
-    // Get current story info for reading log
-    var currentStoryTitle = '';
-    var currentStoryLevel = '';
-    var storyTitleEl = document.getElementById('storyTitle');
-    if (storyTitleEl) {
-        currentStoryTitle = storyTitleEl.textContent.replace('📖 ', '').trim();
-    }
-    if (currentQuestions && currentQuestions[questionIndex]) {
-        var storyId = currentQuestions[questionIndex].storyId;
-        for (var i = 0; i < stories.length; i++) {
-            if (stories[i].id === storyId) {
-                currentStoryLevel = stories[i].level;
-                break;
-            }
+        if (seconds < 8) {
+            if (optional) storyStepError = 'That recording was too short to save. You can try again; your questions stay unlocked.';
+            else showTooFastMessage();
+            updateStoryFlow(); return;
         }
-    }
-    
-    // Save to reading log
-    saveReadingToLog({
-        timestamp: Date.now(),
-        storyTitle: currentStoryTitle,
-        level: currentStoryLevel,
-        attempt: readingAttempts,
-        seconds: elapsedSeconds,
-        wpm: wpm,
-        wordCount: currentWordCount
-    });
-    
-    // Log reading to activity log
-    logReading(readingAttempts, elapsedSeconds, wpm);
-    
-    // Update attempt box in UI
-    var attemptBox = document.getElementById('attempt' + readingAttempts);
-    var wpmEl = document.getElementById('wpm' + readingAttempts);
-
-    if (attemptBox) attemptBox.classList.add('completed');
-    if (wpmEl) wpmEl.textContent = wpm + ' WPM';
-
-    // Stop recording and save if active
-    var attemptNum = readingAttempts;
-    var hadActiveRecording = isRecordingActive;
-    if (isRecordingActive && typeof RecordingEngine !== 'undefined') {
-        var indicator = document.getElementById('recordingIndicator');
-        if (indicator) indicator.style.display = 'none';
-        RecordingEngine.stopRecording().then(function(result) {
-            isRecordingActive = false;
-            return RecordingEngine.saveRecording({
-                storyId: currentStoryId,
-                storyTitle: currentStoryTitle,
-                level: currentStoryLevel,
-                attemptNumber: attemptNum,
-                duration: result.duration,
-                wpm: wpm,
-                mimeType: result.mimeType
-            }, result.blob);
-        }).then(function(recordingId) {
-            // Add play button to attempt box
-            var box = document.getElementById('attempt' + attemptNum);
-            if (box && !box.querySelector('.attempt-play-btn')) {
-                var playBtn = document.createElement('button');
-                playBtn.className = 'attempt-play-btn';
-                playBtn.innerHTML = '▶';
-                playBtn.title = 'Play recording';
-                playBtn.setAttribute('data-recording-id', recordingId);
-                playBtn.onclick = function(e) {
-                    e.stopPropagation();
-                    playAttemptRecording(this);
-                };
-                box.appendChild(playBtn);
-            }
-
-            // After the last required recorded reading, show "Want to listen?" popup
-            if (attemptNum === REQUIRED_READINGS) {
-                showListenBackPopup();
-            }
-        }).catch(function(err) {
-            isRecordingActive = false;
-            console.warn('RecordingEngine: Failed to save recording:', err.message);
-            // If save failed on the last required attempt, still unlock questions
-            if (attemptNum === REQUIRED_READINGS) {
-                maybeUnlockQuestions();
-            }
-        });
-    }
-
-    // Show WPM results popup
-    showWpmResults(wpm);
-
-    // Check if questions should unlock (REQUIRED_READINGS valid readings + a listen)
-    // If the last required reading was recorded, defer unlock until listen-back popup dismissal
-    if (!(hadActiveRecording && attemptNum === REQUIRED_READINGS)) {
+        storyRecordingId = recordingId;
+        storyNeedsRecording = false;
+        readingAttempts = attemptNumber;
+        if (!optional) storyReviewComplete = false;
+        optionalRecordingReview = optional;
+        if (optional) awardEarnedStar();
+        saveReadingProgress();
+        var box = document.getElementById('attempt1');
+        var speed = document.getElementById('wpm1');
+        if (box) box.classList.add('completed');
+        if (speed) speed.textContent = wpm + ' WPM';
+        saveReadingToLog({timestamp: Date.now(), storyTitle: story ? story.title : '', level: story ? story.level : '',
+            attempt: attemptNumber, seconds: seconds, wpm: wpm, wordCount: currentWordCount});
+        logReading(attemptNumber, seconds, wpm);
+        if (wpm > 0) updateAchievementProgress('wpm', wpm);
+        showWpmResults(wpm);
         maybeUnlockQuestions();
-    }
-    
-    // Reset timer display for next attempt
-    timerSeconds = 0;
-    updateTimerDisplay();
+        updateStoryFlow();
+    }).catch(function(err) {
+        if (session !== readingSession) return;
+        recordingSaving = false;
+        storyStepError = 'Your recording could not be saved. Try Read / Record again or ask your teacher.';
+        console.warn('Recording could not be saved:', err.message);
+        updateStoryFlow();
+    });
 }
 
-// ========================================
-// RECORDING INTEGRATION
-// ========================================
-
 function attemptStartRecording() {
+    if (pendingRecordingSession !== null) {
+        storyStepError = 'The microphone is still connecting. Try again shortly.';
+        updateStoryFlow(); return;
+    }
+    var session = readingSession;
+    var optional = questionsUnlocked;
+    pendingRecordingSession = session;
+    recordingStarting = true;
+    updateStoryFlow();
     RecordingEngine.startRecording().then(function() {
+        pendingRecordingSession = null;
+        if (session !== readingSession || (questionsUnlocked && !optional)) {
+            RecordingEngine.stopRecording().catch(function() {});
+            return;
+        }
+        recordingStarting = false;
         isRecordingActive = true;
         var indicator = document.getElementById('recordingIndicator');
         if (indicator) indicator.style.display = 'flex';
+        beginReadingTimer();
         startMicLevelMeter();
     }).catch(function(err) {
+        pendingRecordingSession = null;
+        if (session !== readingSession) return;
+        recordingStarting = false;
         isRecordingActive = false;
-        // If permission denied, show a prompt and retry when they click OK
-        if (err.message && err.message.indexOf('permission') !== -1) {
-            showMicPermissionPrompt();
-        } else {
-            console.warn('RecordingEngine: Could not start recording:', err.message);
-        }
+        storyStepError = 'Microphone access is needed. Allow it and try Read / Record again, or ask your teacher.';
+        updateStoryFlow();
     });
 }
 
-function showMicPermissionPrompt() {
-    // Create a modal asking student to allow microphone
-    var overlay = document.createElement('div');
-    overlay.id = 'micPermissionOverlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;';
+function recordingPlaybackDuration(audio) {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+    if (audio.ended && Number.isFinite(audio.currentTime) && audio.currentTime > 0) return audio.currentTime;
+    return Number.isFinite(audio._recordingDuration) && audio._recordingDuration > 0 ? audio._recordingDuration : 0;
+}
 
-    var box = document.createElement('div');
-    box.style.cssText = 'background:white;border-radius:24px;padding:32px 36px;text-align:center;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
-    box.innerHTML = '<div style="font-size:3rem;margin-bottom:8px;">🎙️</div>' +
-        '<div style="font-family:Fredoka One,cursive;font-size:1.5rem;color:#6366F1;margin-bottom:8px;">Microphone Needed</div>' +
-        '<div style="font-size:1.05rem;color:#475569;margin-bottom:8px;line-height:1.5;">We need your microphone to record your reading.</div>' +
-        '<div style="font-size:0.95rem;color:#64748b;margin-bottom:20px;line-height:1.5;">When the browser asks, click <strong>"Allow"</strong>.<br>If you already clicked "Block", click the <strong>lock icon</strong> in the address bar and set Microphone to <strong>Allow</strong>, then reload.</div>' +
-        '<button id="micPermissionRetryBtn" style="padding:14px 32px;border:none;border-radius:14px;font-size:1.1rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#6366F1,#8B5CF6);color:white;box-shadow:0 4px 16px rgba(99,102,241,0.3);">Try Again</button>';
+function recordingPlaybackTime(seconds) {
+    seconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+    return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+}
 
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-
-    document.getElementById('micPermissionRetryBtn').onclick = function() {
-        overlay.remove();
-        attemptStartRecording();
+function bindRecordingTimeline(audio, container) {
+    if (!container) return;
+    container.classList.add('recording-timeline');
+    container.classList.remove('hidden');
+    container.innerHTML = '<input class="recording-seek" type="range" min="0" max="0" value="0" step="0.01" aria-label="Recording playback position">' +
+        '<div class="recording-playback-time"><span class="recording-current-time">0:00</span><span class="recording-total-time">--:--</span></div>' +
+        '<p class="recording-timeline-hint">Click or drag the bar to go back or skip ahead. You can also use the arrow keys.</p>';
+    var seek = container.querySelector('.recording-seek');
+    var current = container.querySelector('.recording-current-time');
+    var total = container.querySelector('.recording-total-time');
+    var events = ['timeupdate', 'durationchange', 'loadedmetadata', 'seeking', 'seeked', 'ended'];
+    function update() {
+        var duration = recordingPlaybackDuration(audio);
+        var time = Number.isFinite(audio.currentTime) ? Math.max(0, audio.currentTime) : 0;
+        seek.max = duration;
+        seek.disabled = duration <= 0;
+        seek.value = Math.min(time, duration);
+        current.textContent = recordingPlaybackTime(time);
+        total.textContent = duration > 0 ? recordingPlaybackTime(duration) : '--:--';
+        seek.setAttribute('aria-valuetext', current.textContent + ' of ' + total.textContent);
+    }
+    function move() {
+        var duration = recordingPlaybackDuration(audio);
+        if (!duration) return;
+        try { audio.currentTime = Math.max(0, Math.min(Number(seek.value), duration)); }
+        catch (err) { showToast('That part is not ready yet. Try again in a moment.'); }
+        update();
+    }
+    events.forEach(function(name) { audio.addEventListener(name, update); });
+    seek.addEventListener('input', move);
+    audio._disposeRecordingTimeline = function() {
+        events.forEach(function(name) { audio.removeEventListener(name, update); });
+        seek.removeEventListener('input', move);
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        audio._disposeRecordingTimeline = null;
     };
+    update();
+}
+
+function clearRecordingTimeline(audio) {
+    if (audio && audio._disposeRecordingTimeline) audio._disposeRecordingTimeline();
+}
+
+function recordingFullyPlayed(audio) {
+    var duration = recordingPlaybackDuration(audio);
+    if (!duration || !audio.played || !audio.played.length) return false;
+    var covered = 0;
+    // played records only time actually heard, excluding gaps made by seeking.
+    // Allow small codec rounding differences at the start and end.
+    for (var i = 0; i < audio.played.length; i++) {
+        if (audio.played.start(i) > covered + 0.25) return false;
+        covered = Math.max(covered, audio.played.end(i));
+    }
+    return covered >= duration - 0.25;
+}
+
+function toggleRecordingPlayback(audio, onError) {
+    if (!audio.paused) { audio.pause(); return; }
+    try { audio.play().catch(onError); }
+    catch (err) { onError(err); }
+}
+
+function stopStoryReviewPlayback() {
+    storyReviewGeneration++;
+    clearRecordingTimeline(storyReviewAudio);
+    storyReviewAudio = null;
+    storyReviewPlaying = false;
+    storyReviewLoading = false;
+    if (typeof RecordingEngine !== 'undefined') RecordingEngine.stopPlayback();
+}
+
+function listenToOwnRecording() {
+    if (!storyRecordingId || storyReviewLoading) return;
+    if (storyReviewPlaying && storyReviewAudio) {
+        var activeAudio = storyReviewAudio;
+        toggleRecordingPlayback(activeAudio, function() {
+            if (storyReviewAudio !== activeAudio) return;
+            stopStoryReviewPlayback();
+            storyStepError = 'Your recording could not resume. Try Listen again or ask your teacher.';
+            updateStoryFlow();
+        });
+        updateStoryFlow(); return;
+    }
+    var session = readingSession;
+    var optional = questionsUnlocked;
+    var token = ++storyReviewGeneration;
+    storyStepError = '';
+    storyReviewLoading = true;
+    updateStoryFlow();
+    RecordingEngine.playRecording(storyRecordingId).then(function(audio) {
+        if (session !== readingSession || token !== storyReviewGeneration) { audio.pause(); return; }
+        storyReviewLoading = false;
+        storyReviewPlaying = true;
+        storyReviewAudio = audio;
+        bindRecordingTimeline(audio, document.getElementById('storyPlaybackTimeline'));
+        function currentPlayback() { return session === readingSession && token === storyReviewGeneration && storyReviewAudio === audio; }
+        audio.addEventListener('play', function() { if (currentPlayback()) updateStoryFlow(); });
+        audio.addEventListener('pause', function() { if (currentPlayback()) updateStoryFlow(); });
+        audio.addEventListener('recordingstop', function() {
+            if (!currentPlayback()) return;
+            clearRecordingTimeline(audio);
+            storyReviewAudio = null;
+            storyReviewPlaying = false;
+            storyReviewGeneration++;
+            updateStoryFlow();
+        }, {once: true});
+        updateStoryFlow();
+        audio.addEventListener('ended', function() {
+            if (!currentPlayback() || !storyReviewPlaying || !audio.ended) return;
+            var complete = recordingFullyPlayed(audio);
+            clearRecordingTimeline(audio);
+            storyReviewAudio = null;
+            storyReviewPlaying = false;
+            if (!complete) {
+                storyStepError = optional ? 'Replay the whole recording to earn a relistening star.' : 'Listen to the whole recording to unlock the questions. Try again without skipping any parts.';
+                updateStoryFlow(); return;
+            }
+            storyReviewComplete = true;
+            optionalRecordingReview = optional;
+            if (optional) awardEarnedStar();
+            saveReadingProgress();
+            maybeUnlockQuestions();
+            updateStoryFlow();
+        });
+        audio.addEventListener('error', function() {
+            if (session !== readingSession || token !== storyReviewGeneration) return;
+            storyReviewPlaying = false;
+            storyReviewGeneration++;
+            clearRecordingTimeline(audio);
+            storyReviewAudio = null;
+            storyStepError = 'Your recording could not play. Try Listen again or ask your teacher.';
+            updateStoryFlow();
+        }, {once: true});
+    }).catch(function(err) {
+        if (session !== readingSession || token !== storyReviewGeneration) return;
+        storyReviewLoading = false;
+        storyReviewPlaying = false;
+        storyStepError = 'Your recording could not play. Try Listen again or ask your teacher.';
+        updateStoryFlow();
+    });
 }
 
 function startMicLevelMeter() {
@@ -6115,63 +6450,6 @@ function stopMicLevelMeter() {
     if (meter) meter.style.display = 'none';
 }
 
-function showListenBackPopup() {
-    var popup = document.getElementById('listenBackPopup');
-    if (popup) popup.style.display = 'flex';
-}
-
-function listenBackYes() {
-    var popup = document.getElementById('listenBackPopup');
-    if (popup) popup.style.display = 'none';
-
-    // Play recordings 1, 2, 3 in sequence
-    if (typeof RecordingEngine === 'undefined') { maybeUnlockQuestions(); return; }
-
-    RecordingEngine.getRecordingsForStory(currentStoryId).then(function(recordings) {
-        if (!recordings.length) { maybeUnlockQuestions(); return; }
-
-        // Highlight all play buttons
-        var allBtns = document.querySelectorAll('.attempt-play-btn');
-        for (var i = 0; i < allBtns.length; i++) allBtns[i].classList.add('highlight-listen');
-
-        var index = 0;
-        function playNext() {
-            if (index >= recordings.length) {
-                // Done playing all — remove highlights and unlock
-                var btns = document.querySelectorAll('.attempt-play-btn.highlight-listen');
-                for (var j = 0; j < btns.length; j++) btns[j].classList.remove('highlight-listen');
-                maybeUnlockQuestions();
-                return;
-            }
-            var rec = recordings[index];
-            // Highlight current attempt box
-            var box = document.getElementById('attempt' + rec.attemptNumber);
-            if (box) box.classList.add('playing-back');
-
-            RecordingEngine.playRecording(rec.id).then(function(audio) {
-                audio.onended = function() {
-                    if (box) box.classList.remove('playing-back');
-                    index++;
-                    playNext();
-                };
-            }).catch(function() {
-                if (box) box.classList.remove('playing-back');
-                index++;
-                playNext();
-            });
-        }
-        playNext();
-    }).catch(function() {
-        maybeUnlockQuestions();
-    });
-}
-
-function listenBackNo() {
-    var popup = document.getElementById('listenBackPopup');
-    if (popup) popup.style.display = 'none';
-    maybeUnlockQuestions();
-}
-
 function playAttemptRecording(btnElement) {
     var recordingId = parseInt(btnElement.getAttribute('data-recording-id'), 10);
     if (!recordingId || typeof RecordingEngine === 'undefined') return;
@@ -6216,26 +6494,28 @@ function playAttemptRecording(btnElement) {
 
 function loadRecordingsForCurrentStory() {
     if (!currentStoryId || typeof RecordingEngine === 'undefined' || !RecordingEngine.isSupported()) return;
-
+    var session = readingSession;
+    storyReviewLoading = readingAttempts >= REQUIRED_READINGS && !questionsUnlocked;
+    updateStoryFlow();
     RecordingEngine.getRecordingsForStory(currentStoryId).then(function(recordings) {
-        for (var i = 0; i < recordings.length; i++) {
-            var rec = recordings[i];
-            var box = document.getElementById('attempt' + rec.attemptNumber);
-            if (box && !box.querySelector('.attempt-play-btn')) {
-                var playBtn = document.createElement('button');
-                playBtn.className = 'attempt-play-btn';
-                playBtn.innerHTML = '▶';
-                playBtn.title = 'Play recording';
-                playBtn.setAttribute('data-recording-id', rec.id);
-                playBtn.onclick = function(e) {
-                    e.stopPropagation();
-                    playAttemptRecording(this);
-                };
-                box.appendChild(playBtn);
-            }
+        if (session !== readingSession) return;
+        var latest = recordings.reduce(function(newest, recording) {
+            return !newest || recording.timestamp > newest.timestamp ||
+                (recording.timestamp === newest.timestamp && recording.id > newest.id) ? recording : newest;
+        }, null);
+        storyRecordingId = latest ? latest.id : null;
+        storyReviewLoading = false;
+        // A restored unfinished reading needs its saved audio for the final step.
+        if (!storyRecordingId && readingAttempts >= REQUIRED_READINGS && !questionsUnlocked) {
+            storyNeedsRecording = true;
+            storyStepError = 'Your recording is no longer available. Record your reading again or ask your teacher.';
         }
-    }).catch(function(err) {
-        console.warn('RecordingEngine: Failed to load recordings for story:', err.message);
+        updateStoryFlow();
+    }).catch(function() {
+        if (session !== readingSession) return;
+        storyReviewLoading = false;
+        storyStepError = 'Your recording could not be loaded. Ask your teacher for help.';
+        updateStoryFlow();
     });
 }
 
@@ -6398,12 +6678,10 @@ function updateReadingLogDisplay() {
 }
 
 function unlockRequirementText() {
-    var needReadings = readingAttempts < REQUIRED_READINGS;
-    var needListen = REQUIRE_LISTEN && !storyListened;
-    var readText = REQUIRED_READINGS === 1 ? 'read the story once' : 'read the story ' + REQUIRED_READINGS + ' times';
-    if (needReadings && needListen) return 'Listen to the story once and ' + readText + ' to unlock!';
-    if (needListen) return 'Listen to the story once to unlock!';
-    if (needReadings) return (REQUIRED_READINGS === 1 ? 'Read the story once' : 'Read the story ' + REQUIRED_READINGS + ' times') + ' to unlock!';
+    if (questionsUnlocked) return 'Questions unlocked!';
+    if (!storyListened) return 'Step 1: Listen to the story.';
+    if (readingAttempts < REQUIRED_READINGS || storyNeedsRecording) return 'Step 2: Read and record the story.';
+    if (!storyReviewComplete) return 'Step 3: Listen to your recording to unlock the questions.';
     return 'Questions unlocked!';
 }
 
@@ -6415,11 +6693,9 @@ function updateLockedMessage() {
 function markStoryListened() {
     if (storyListened) return;
     storyListened = true;
+    saveReadingProgress();
+    updateStoryFlow();
     if (questionsUnlocked) return;
-    // A recorded final reading is still waiting on its listen-back popup
-    var popup = document.getElementById('listenBackPopup');
-    if (popup && popup.style.display === 'flex') return;
-    if (isRecordingActive) return;
     if (readingAttempts < REQUIRED_READINGS) {
         updateLockedMessage();
         showToast('Great listening! Now read the story out loud.');
@@ -6429,19 +6705,48 @@ function markStoryListened() {
 }
 
 function maybeUnlockQuestions() {
-    if (questionsUnlocked) return;
-    if (readingAttempts >= REQUIRED_READINGS && (!REQUIRE_LISTEN || storyListened)) {
+    if (questionsUnlocked) { updateStoryFlow(); return; }
+    refreshReadingProgress();
+    var progress = storyReadingProgress[currentStoryId] || {};
+    if (progress.read === true) readingAttempts = Math.max(readingAttempts, REQUIRED_READINGS);
+    if (progress.listened === true) storyListened = true;
+    if (progress.reviewed === true) storyReviewComplete = true;
+    if (progress.unlocked === true || (readingAttempts >= REQUIRED_READINGS && (!REQUIRE_LISTEN || storyListened) && storyReviewComplete)) {
         unlockQuestions();
     } else {
         updateLockedMessage();
         if (readingAttempts >= REQUIRED_READINGS && REQUIRE_LISTEN && !storyListened) {
-            showToast('Now press Listen or Follow Along to hear the story once.');
+            showToast('Listen to the story first.');
         }
     }
+    updateStoryFlow();
 }
+
+window.addEventListener('storage', function(event) {
+    if (event.key !== 'readingQuestReadingProgress' && (!event.key || !event.key.startsWith('readingQuestReadingProgress:'))) return;
+    refreshReadingProgress();
+    if (currentStoryId !== null && !document.getElementById('practiceScreen').classList.contains('hidden')) {
+        maybeUnlockQuestions();
+        if (!questionsUnlocked && readingAttempts >= REQUIRED_READINGS && !storyRecordingId && !recordingSaving && !storyReviewLoading) loadRecordingsForCurrentStory();
+    }
+});
 
 function unlockQuestions() {
     questionsUnlocked = true;
+    stopSpeaking();
+    stopTimer();
+    recordingStarting = false;
+    if (isRecordingActive && typeof RecordingEngine !== 'undefined') {
+        isRecordingActive = false;
+        RecordingEngine.stopRecording().catch(function() {});
+    }
+    var indicator = document.getElementById('recordingIndicator');
+    if (indicator) indicator.style.display = 'none';
+    if (storyReviewPlaying || storyReviewLoading) stopStoryReviewPlayback();
+    saveReadingProgress();
+    updateReadingButton();
+    var teacherSkip = document.getElementById('teacherSkipReadingBtn');
+    if (teacherSkip) teacherSkip.disabled = true;
 
     // Switch to shorter idle threshold for question-answering phase
     if (typeof FocusMonitor !== 'undefined' && FocusMonitor.setIdleThreshold) {
@@ -6473,6 +6778,7 @@ function unlockQuestions() {
 }
 
 function lockQuestions() {
+    if (questionsUnlocked) return;
     questionsUnlocked = false;
     
     var questionCard = document.getElementById('questionCard');
@@ -6483,9 +6789,23 @@ function lockQuestions() {
 }
 
 function resetReadingAttempts() {
-    readingAttempts = 0;
-    questionsUnlocked = false;
-    storyListened = false;
+    readingSession++;
+    stopStoryStepActivity();
+    stopSpeaking();
+    stopTimer();
+    refreshReadingProgress();
+    var progress = storyReadingProgress[currentStoryId] || {};
+    readingAttempts = progress.read === true ? REQUIRED_READINGS : 0;
+    storyListened = progress.listened === true;
+    storyReviewComplete = progress.reviewed === true;
+    questionsUnlocked = progress.unlocked === true || (readingAttempts >= REQUIRED_READINGS && (!REQUIRE_LISTEN || storyListened) && storyReviewComplete);
+    updateReadingButton();
+    var teacherSkip = document.getElementById('teacherSkipReadingBtn');
+    if (teacherSkip) teacherSkip.disabled = questionsUnlocked;
+    var popup = document.getElementById('listenBackPopup');
+    if (popup) popup.style.display = 'none';
+    closeTooFastPopup();
+    closeReadingOverlays();
     timerSeconds = 0;
 
     // Stop any active recording
@@ -6497,11 +6817,11 @@ function resetReadingAttempts() {
     if (indicator) indicator.style.display = 'none';
 
     // Reset attempt boxes (remove play buttons too)
-    for (var i = 1; i <= 3; i++) {
+    for (var i = 1; i <= REQUIRED_READINGS; i++) {
         var box = document.getElementById('attempt' + i);
         var wpm = document.getElementById('wpm' + i);
         if (box) {
-            box.classList.remove('completed');
+            box.classList.toggle('completed', i <= readingAttempts);
             var playBtn = box.querySelector('.attempt-play-btn');
             if (playBtn) playBtn.parentNode.removeChild(playBtn);
         }
@@ -6511,13 +6831,68 @@ function resetReadingAttempts() {
     lockQuestions();
 }
 
+function skipReadingListening() {
+    if (currentStoryId === null || questionsUnlocked) return;
+    document.getElementById('teacherSkipForm').reset();
+    document.getElementById('teacherSkipError').textContent = '';
+    document.getElementById('teacherSkipDialog').showModal();
+    document.getElementById('teacherSkipPin').focus();
+}
+
+function closeReadingOverlays() {
+    var micOverlay = document.getElementById('micPermissionOverlay');
+    if (micOverlay) micOverlay.remove();
+    var teacherDialog = document.getElementById('teacherSkipDialog');
+    if (teacherDialog && teacherDialog.open) teacherDialog.close();
+}
+
+function stopStoryStepActivity() {
+    stopStoryReviewPlayback();
+    recordingStarting = false;
+    recordingSaving = false;
+    storyRecordingId = null;
+    storyNeedsRecording = false;
+    optionalRecordingReview = false;
+    storyStepError = '';
+}
+
+function submitTeacherSkip(event) {
+    event.preventDefault();
+    var pinInput = document.getElementById('teacherSkipPin');
+    if (pinInput.value !== '5773') {
+        document.getElementById('teacherSkipError').textContent = 'Incorrect PIN. Please try again.';
+        pinInput.value = '';
+        pinInput.focus();
+        return;
+    }
+    pinInput.value = '';
+    document.getElementById('teacherSkipDialog').close();
+    if (currentStoryId === null || questionsUnlocked) return;
+    closeReadingOverlays();
+    stopStoryStepActivity();
+    stopSpeaking();
+    stopTimer();
+    if (isRecordingActive && typeof RecordingEngine !== 'undefined') {
+        RecordingEngine.stopRecording().catch(function() {});
+        isRecordingActive = false;
+    }
+    var indicator = document.getElementById('recordingIndicator');
+    if (indicator) indicator.style.display = 'none';
+    var popup = document.getElementById('listenBackPopup');
+    if (popup) popup.style.display = 'none';
+    unlockQuestions();
+}
+
 // ============================================
 // RECORDING STATS & RECORDINGS TAB
 // ============================================
 
 var _recordingMiniPlayer = null;
+var _recordingMiniGeneration = 0;
+var _recordingMiniPending = null;
 
 function renderRecordingsTab(container) {
+    stopRecordingMiniPlayer();
     if (typeof RecordingEngine === 'undefined' || !RecordingEngine.isSupported()) {
         container.innerHTML = '<div class="recording-list-empty"><span class="recording-list-empty-icon">🎙️</span><div>Recording is not supported in this browser.</div></div>';
         return;
@@ -6580,65 +6955,78 @@ function formatRecordingDuration(seconds) {
 }
 
 function playRecordingInline(id, btn) {
-    if (_recordingMiniPlayer && _recordingMiniPlayer._recId === id) { stopRecordingMiniPlayer(); return; }
+    if (_recordingMiniPlayer && _recordingMiniPlayer._recId === id) {
+        var active = _recordingMiniPlayer;
+        toggleRecordingPlayback(active, function() {
+            if (_recordingMiniPlayer !== active) return;
+            stopRecordingMiniPlayer();
+            showToast('Could not resume recording. Try playing it again.');
+        });
+        setRecordingPlayButton(btn, !active.paused);
+        return;
+    }
     stopRecordingMiniPlayer();
-    var playIcon = btn.querySelector('.rec-play-icon');
-    if (playIcon) playIcon.textContent = '⏸';
-    btn.classList.add('playing');
-    var slot = document.getElementById('miniPlayer_' + id);
+    var token = ++_recordingMiniGeneration;
+    var host = btn.closest('.recording-item, .rec-indicator-cell');
+    var slot = host ? host.querySelector('.mini-player-slot') : document.getElementById('miniPlayer_' + id);
+    _recordingMiniPending = {id: id, btn: btn, slot: slot};
+    btn.setAttribute('aria-busy', 'true');
     RecordingEngine.playRecording(id).then(function(audio) {
+        if (token !== _recordingMiniGeneration) { audio.pause(); return; }
+        _recordingMiniPending = null;
+        btn.removeAttribute('aria-busy');
         _recordingMiniPlayer = audio;
         _recordingMiniPlayer._recId = id;
         _recordingMiniPlayer._btn = btn;
-        if (slot) {
-            slot.innerHTML = '<div class="mini-audio-player"><div class="mini-player-progress-wrapper"><div class="mini-player-progress" id="miniProgress_' + id + '"><div class="mini-player-progress-fill" id="miniProgressFill_' + id + '" style="width:0%"></div></div><div class="mini-player-time"><span id="miniTimeCurrent_' + id + '">0:00</span><span id="miniTimeTotal_' + id + '">--</span></div></div></div>';
-            var progressBar = document.getElementById('miniProgress_' + id);
-            if (progressBar) {
-                progressBar.onclick = function(e) {
-                    if (_recordingMiniPlayer && _recordingMiniPlayer.duration) {
-                        var rect = progressBar.getBoundingClientRect();
-                        var pct = (e.clientX - rect.left) / rect.width;
-                        _recordingMiniPlayer.currentTime = pct * _recordingMiniPlayer.duration;
-                    }
-                };
-            }
+        _recordingMiniPlayer._slot = slot;
+        bindRecordingTimeline(audio, slot);
+        function sync() {
+            if (_recordingMiniPlayer === audio) setRecordingPlayButton(btn, !audio.paused);
         }
-        var progressInterval = setInterval(function() {
-            if (!_recordingMiniPlayer || _recordingMiniPlayer._recId !== id) { clearInterval(progressInterval); return; }
-            var cur = _recordingMiniPlayer.currentTime || 0;
-            var dur = _recordingMiniPlayer.duration || 0;
-            var pct = dur > 0 ? (cur / dur) * 100 : 0;
-            var fill = document.getElementById('miniProgressFill_' + id);
-            var timeCur = document.getElementById('miniTimeCurrent_' + id);
-            var timeTotal = document.getElementById('miniTimeTotal_' + id);
-            if (fill) fill.style.width = pct + '%';
-            if (timeCur) timeCur.textContent = formatRecordingDuration(Math.floor(cur));
-            if (timeTotal && dur > 0) timeTotal.textContent = formatRecordingDuration(Math.floor(dur));
-        }, 200);
-        audio.onended = function() {
-            clearInterval(progressInterval);
+        function finish() {
+            if (_recordingMiniPlayer !== audio) return;
+            clearRecordingTimeline(audio);
             resetMiniPlayerUI(id, btn, slot);
             _recordingMiniPlayer = null;
-        };
+        }
+        audio.addEventListener('play', sync);
+        audio.addEventListener('pause', sync);
+        audio.addEventListener('ended', finish, {once: true});
+        audio.addEventListener('error', finish, {once: true});
+        audio.addEventListener('recordingstop', finish, {once: true});
+        sync();
     }).catch(function() {
-        if (playIcon) playIcon.textContent = '▶';
-        btn.classList.remove('playing');
+        if (token !== _recordingMiniGeneration) return;
+        _recordingMiniPending = null;
+        resetMiniPlayerUI(id, btn, slot);
+        showToast('Could not play recording.');
     });
 }
 
+function setRecordingPlayButton(btn, playing) {
+    var icon = btn.querySelector('.rec-play-icon') || btn;
+    icon.textContent = playing ? '⏸' : '▶';
+    btn.classList.toggle('playing', playing);
+    btn.title = playing ? 'Pause recording' : 'Play recording';
+    btn.setAttribute('aria-label', btn.title);
+}
+
 function stopRecordingMiniPlayer() {
-    if (_recordingMiniPlayer) {
-        var id = _recordingMiniPlayer._recId;
-        var btn = _recordingMiniPlayer._btn;
-        var slot = document.getElementById('miniPlayer_' + id);
-        RecordingEngine.stopPlayback();
-        resetMiniPlayerUI(id, btn, slot);
-        _recordingMiniPlayer = null;
+    _recordingMiniGeneration++;
+    var pending = _recordingMiniPending;
+    _recordingMiniPending = null;
+    if (pending) resetMiniPlayerUI(pending.id, pending.btn, pending.slot);
+    var audio = _recordingMiniPlayer;
+    _recordingMiniPlayer = null;
+    if (audio) {
+        clearRecordingTimeline(audio);
+        resetMiniPlayerUI(audio._recId, audio._btn, audio._slot);
     }
+    if (audio || pending) RecordingEngine.stopPlayback();
 }
 
 function resetMiniPlayerUI(id, btn, slot) {
-    if (btn) { var icon = btn.querySelector('.rec-play-icon'); if (icon) icon.textContent = '▶'; btn.classList.remove('playing'); }
+    if (btn) { setRecordingPlayButton(btn, false); btn.removeAttribute('aria-busy'); }
     if (slot) slot.innerHTML = '';
 }
 
@@ -9572,123 +9960,64 @@ var questions = [
             { id: 1740, storyId: 145, category: "vocab", type: "multiple", question: "What does 'synthetic' mean?", options: ["Natural", "Made by humans, not nature", "Organic", "Biodegradable"], correct: 1, hint: "Plastic is synthetic.", explanation: "Synthetic means artificially made, not natural!", wrongFeedback: ["Opposite.", "", "Opposite.", "Opposite."] },
 
             // THEME QUESTIONS (Story 1-6)
-            { id: 1, storyId: 1, category: "theme", type: "multiple", question: "What is the main theme of this story?", options: ["Dogs sleep a lot", "Dogs are scared", "Dogs like to eat", "Dogs are helpful"], correct: 3, hint: "Think about what Max does for his family every day.", explanation: "The story shows how Max helps everyone in the family!" },
 
-            { id: 2, storyId: 2, category: "theme", type: "multiple", question: "What is the message of this story?", options: ["School is boring", "Lunch is the best part of school", "Being shy is bad", "Making friends helps you feel better"], correct: 3, hint: "How did Anna feel at the end compared to the beginning?", explanation: "Anna felt scared at first, but making a friend made her happy!" },
 
-            { id: 3, storyId: 3, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["Gardens are hard work", "Working together brings good results", "Plants grow fast", "Grandmas are nice"], correct: 1, hint: "What did Grandma say at the end?", explanation: "Grandma said 'We did it together' showing teamwork matters!" },
 
-            { id: 4, storyId: 4, category: "theme", type: "multiple", question: "What is the theme of Ben's story?", options: ["Rain is bad", "Boxes are better than toys", "You can have fun with creativity", "Garages are fun"], correct: 2, hint: "What did Ben make when he couldn't go outside?", explanation: "Ben used his imagination to turn a boring day into an adventure!" },
 
-            { id: 5, storyId: 5, category: "theme", type: "multiple", question: "What is the main message of Jada's story?", options: ["Training wheels are the best", "Bikes are dangerous", "Dads are helpful", "Keep trying and you will succeed"], correct: 3, hint: "What happened when Jada didn't give up?", explanation: "Jada learned that practice makes perfect!" },
 
-            { id: 6, storyId: 6, category: "theme", type: "multiple", question: "What theme does Marco's story share?", options: ["Lunch is important", "Cookies are yummy", "Sharing makes you feel good", "Friends forget things"], correct: 2, hint: "How did Marco feel after sharing?", explanation: "Marco felt 'warm inside' because sharing made him happier!" },
 
-            { id: 7, storyId: 1, category: "story", type: "multiple", question: "Who is the main character in this story?", options: ["The kids", "Mom", "Dad", "Max"], correct: 3, hint: "Who does the story talk about the most?", explanation: "Max the dog is the main character!" },
 
-            { id: 8, storyId: 2, category: "story", type: "multiple", question: "Where does this story take place?", options: ["At school", "At home", "At the park", "At a store"], correct: 0, hint: "Where was Anna when she felt shy?", explanation: "The story happens at Anna's new school." },
 
-            { id: 9, storyId: 3, category: "story", type: "sequence", question: "Put these events in the correct order:", items: ["Plants started growing", "They planted seeds", "They watered the garden"], correct: [1, 2, 0], hint: "Think about what you need to do first to grow plants.", explanation: "First plant, then water, then plants grow!" },
 
-            { id: 10, storyId: 4, category: "story", type: "multiple", question: "What is the setting of this story?", options: ["A windy day at the park", "A cold day at school", "A sunny day at the beach", "A rainy day at home"], correct: 3, hint: "What was the weather like?", explanation: "It was raining and Ben was inside his house." },
 
-            { id: 11, storyId: 5, category: "story", type: "multiple", question: "What was Jada's problem in the story?", options: ["She lost her bike", "Her dad was too busy", "She couldn't ride without training wheels", "It was too cold to ride"], correct: 2, hint: "What was Jada trying to learn?", explanation: "Jada kept falling when she tried to ride without training wheels." },
 
-            { id: 12, storyId: 6, category: "story", type: "multiple", question: "How was the problem solved in Marco's story?", options: ["Leo found his lunch", "The teacher gave Leo food", "Marco told Leo to go home", "Marco shared his cookie"], correct: 3, hint: "What did Marco do to help his friend?", explanation: "Marco shared his cookie with Leo!" },
 
-            { id: 13, storyId: 1, category: "vocab", type: "multiple", question: "What does 'newspaper' mean?", options: ["A shopping list", "A book about news", "A letter from a friend", "Paper with news printed on it"], correct: 3, hint: "Think about what comes to your house every day with stories about what happened.", explanation: "A newspaper has news stories printed on paper!" },
 
-            { id: 14, storyId: 2, category: "vocab", type: "fillblank", question: "Anna felt _____ at her new school. This means she was nervous about meeting new people.", words: ["happy", "shy", "angry", "sleepy"], correct: "shy", hint: "What word describes someone who is nervous around new people?", explanation: "Shy means feeling nervous or timid around others." },
 
-            { id: 15, storyId: 3, category: "vocab", type: "multiple", question: "What does 'proud' mean in this story?", options: ["Feeling good about what you did", "Feeling tired", "Feeling sad", "Feeling scared"], correct: 0, hint: "How did the narrator feel after the plants grew?", explanation: "Proud means feeling happy about something you accomplished!" },
 
-            { id: 16, storyId: 4, category: "vocab", type: "multiple", question: "What does 'cozy' mean?", options: ["Very big", "Warm and comfortable", "Cold and dark", "Messy and loud"], correct: 1, hint: "The fort had pillows and stuffed animals. How would that feel?", explanation: "Cozy means warm, snug, and comfortable!" },
 
-            { id: 17, storyId: 5, category: "vocab", type: "multiple", question: "What does 'scraped' mean?", options: ["Cleaned her knees", "Painted her knees", "Covered her knees", "Hurt her knees by rubbing against something"], correct: 3, hint: "What happens when you fall down?", explanation: "Scraped means the skin got hurt from rubbing on the ground." },
 
-            { id: 18, storyId: 6, category: "vocab", type: "fillblank", question: "Leo's face _____ up with a big smile. This means his face became bright and happy.", words: ["lit", "shut", "fell", "turned"], correct: "lit", hint: "What word means to become bright like a light?", explanation: "'Lit up' means to become bright and happy!" },
 
-            { id: 19, storyId: 1, category: "phonics", type: "multiple", question: "Which word from the story has the long 'a' sound like in 'day'?", options: ["plays", "Max", "dog", "sits"], correct: 0, hint: "Say each word. Which one has the same vowel sound as 'day'?", explanation: "'Plays' has the long 'a' sound, spelled with 'ay'!" },
 
-            { id: 20, storyId: 2, category: "phonics", type: "multiple", question: "Which two words rhyme?", options: ["books - lunch", "school - scared", "Mia - Anna", "day - say"], correct: 3, hint: "Rhyming words have the same ending sound.", explanation: "'Day' and 'say' both end with the '-ay' sound!" },
 
-            { id: 21, storyId: 3, category: "phonics", type: "multiple", question: "The word 'green' has the long 'e' sound. Which word has the same sound?", options: ["proud", "morning", "seeds", "dirt"], correct: 2, hint: "Listen for the 'ee' sound.", explanation: "'Seeds' has the long 'e' sound spelled with 'ee'!" },
 
-            { id: 22, storyId: 4, category: "phonics", type: "multiple", question: "Which word has the 'ow' sound like in 'cow'?", options: ["windows", "box", "door", "found"], correct: 3, hint: "Say 'cow' and then try each word.", explanation: "'Found' has the 'ow' sound like 'cow'!" },
 
-            { id: 23, storyId: 5, category: "phonics", type: "fillblank", question: "Find the word with the 'ed' ending that sounds like /t/: scraped, pedaled, wanted", words: ["scraped", "pedaled", "wanted"], correct: "scraped", hint: "Say each word. In which one does 'ed' sound like /t/?", explanation: "'Scraped' - the 'ed' makes a /t/ sound!" },
 
-            { id: 24, storyId: 6, category: "phonics", type: "multiple", question: "Which word has the short 'i' sound like in 'sit'?", options: ["bigger", "smile", "inside", "keeping"], correct: 0, hint: "Listen for the quick 'i' sound, not the long 'eye' sound.", explanation: "'Bigger' has the short 'i' sound!" },
 
-            { id: 25, storyId: 1, category: "inference", type: "multiple", question: "Why does Max sit close to Mom when she is sad?", options: ["He wants to make her feel better", "He is scared", "He wants food", "He is tired"], correct: 0, hint: "Max is a helpful dog. What would a helpful dog do?", explanation: "Max is trying to comfort Mom because he cares about her!" },
 
-            { id: 26, storyId: 2, category: "inference", type: "truefalse", question: "Mia is probably a kind person.", correct: true, hint: "What did Mia do when she saw Anna alone?", explanation: "Mia invited Anna to sit with her, which shows kindness!" },
 
-            { id: 27, storyId: 3, category: "inference", type: "multiple", question: "How did the narrator probably feel while waiting for the seeds to grow?", options: ["Angry and upset", "Sleepy and tired", "Excited and eager", "Bored and didn't care"], correct: 2, hint: "The narrator says 'We waited and waited.' What does that tell you?", explanation: "Waiting eagerly for something shows excitement!" },
 
-            { id: 28, storyId: 4, category: "inference", type: "multiple", question: "Why did Ben feel bored at first?", options: ["The TV was broken", "He was hungry", "He had nothing planned to do inside", "His mom was mean"], correct: 2, hint: "What did Ben want to do that he couldn't?", explanation: "Ben wanted to play outside but couldn't, and hadn't found something else yet." },
 
-            { id: 29, storyId: 5, category: "inference", type: "multiple", question: "How did Jada probably feel after her dad's words?", options: ["Confused", "Ready to quit", "Encouraged to try again", "More frustrated"], correct: 2, hint: "What did Jada do after her dad spoke to her?", explanation: "Jada took a deep breath and tried again, so she felt encouraged!" },
 
-            { id: 30, storyId: 6, category: "inference", type: "truefalse", question: "At first, Marco wanted to keep both cookies.", correct: true, hint: "Read what Marco thought about in the middle of the story.", explanation: "The story says 'Marco thought about keeping both cookies for himself.'" },
 
-            { id: 31, storyId: 1, category: "context", type: "multiple", question: "Using context clues, what does 'whole' mean in 'The whole family loves Max'?", options: ["A part of", "A hole in the ground", "Half of", "All of"], correct: 3, hint: "The story mentions Dad, Mom, and kids all loving Max.", explanation: "'Whole' means all or entire - everyone in the family!" },
 
-            { id: 32, storyId: 2, category: "context", type: "multiple", question: "What clues tell us what 'shy' means?", options: ["Anna felt nervous and scared", "Anna was hungry", "Anna was excited and loud", "Anna was sleepy"], correct: 0, hint: "What other word is near 'shy' that has a similar meaning?", explanation: "'Scared' is a clue - shy means nervous around others!" },
 
-            { id: 33, storyId: 3, category: "context", type: "multiple", question: "'Something green was poking out of the dirt.' What was poking out?", options: ["A worm", "A bug", "A rock", "A new plant"], correct: 3, hint: "They planted seeds. What comes from seeds?", explanation: "Plants! They planted seeds and new plants were growing." },
 
-            { id: 34, storyId: 4, category: "context", type: "multiple", question: "What does 'cardboard box' most likely mean based on the story?", options: ["A wooden crate", "A metal container", "A paper-like box material", "A plastic bin"], correct: 2, hint: "Ben drew on it with markers. What material can you draw on?", explanation: "Cardboard is a thick paper material you can draw on!" },
 
-            { id: 35, storyId: 5, category: "context", type: "multiple", question: "What does 'pedaled' mean based on how it's used?", options: ["Carried the bike", "Pushed the bike pedals with feet", "Fixed the bike", "Stopped the bike"], correct: 1, hint: "Jada pedaled all the way down the street. What do you do to make a bike go?", explanation: "Pedaling means pushing the bike pedals to make it move!" },
 
-            { id: 36, storyId: 6, category: "context", type: "multiple", question: "'Marco felt warm inside.' What does this mean?", options: ["It was hot outside", "He felt happy and good", "He ate something warm", "He had a fever"], correct: 1, hint: "This happened after Marco saw Leo smile. How did sharing make him feel?", explanation: "'Warm inside' means feeling happy and good emotionally!" },
 
-            { id: 37, storyId: 1, category: "summary", type: "multiple", question: "Which sentence best summarizes the story?", options: ["Max brings the newspaper.", "Max is a dog who lives in a house.", "Max is a helpful dog that his family loves.", "Max plays with kids."], correct: 2, hint: "A summary tells the main idea of the whole story.", explanation: "This summary captures that Max helps the family and is loved!" },
 
-            { id: 38, storyId: 2, category: "summary", type: "multiple", question: "What is the best summary of Anna's story?", options: ["Mia asked Anna a question.", "Anna ate lunch at school.", "A new girl makes a friend and feels better about school.", "The girls like to read books."], correct: 2, hint: "Think about the whole story - how it started and ended.", explanation: "Anna started scared, made a friend, and felt happy - that's the main story!" },
 
-            { id: 39, storyId: 3, category: "summary", type: "sequence", question: "Order these summary points correctly:", items: ["The plants grew and they felt proud", "They planted seeds together", "They watered the seeds every day"], correct: [1, 2, 0], hint: "What happened first, second, and third?", explanation: "Plant → Water → Grow - that's the order!" },
 
-            { id: 40, storyId: 4, category: "summary", type: "multiple", question: "Which is the best one-sentence summary?", options: ["Ben turned a boring rainy day into an adventure by being creative.", "Ben couldn't play outside.", "Ben's mom said he had to stay inside.", "Ben found a box."], correct: 0, hint: "A good summary tells the problem AND how it was solved.", explanation: "This tells us Ben was stuck inside AND how he made it fun!" },
 
-            { id: 41, storyId: 5, category: "summary", type: "multiple", question: "What is this story mostly about?", options: ["A dad talks to his daughter", "Training wheels are important", "A girl learns to ride a bike by not giving up", "A girl falls off her bike"], correct: 2, hint: "What did Jada learn and accomplish?", explanation: "Jada learned that practice helps you succeed!" },
 
-            { id: 42, storyId: 6, category: "summary", type: "multiple", question: "Choose the best summary:", options: ["Cookies are Marco's favorite snack.", "Marco learns that sharing makes him happier than keeping things for himself.", "Leo forgot his lunch.", "Marco had cookies."], correct: 1, hint: "What lesson did Marco learn?", explanation: "The main point is that sharing made Marco feel good!" },
 
-            { id: 43, storyId: 1, category: "grammar", type: "multiple", question: "In the sentence 'He brings the newspaper to Dad,' which word is a VERB (action word)?", options: ["newspaper", "He", "Dad", "brings"], correct: 3, hint: "A verb is a word that shows action - something you DO.", explanation: "'Brings' is the action Max does!" },
 
-            { id: 44, storyId: 2, category: "grammar", type: "multiple", question: "In 'She felt shy AND scared,' what kind of word is 'and'?", options: ["Verb", "Noun", "Conjunction", "Adjective"], correct: 2, hint: "This word connects 'shy' and 'scared' together.", explanation: "'And' is a conjunction - it joins words together!" },
 
-            { id: 45, storyId: 3, category: "grammar", type: "multiple", question: "Which word is an ADJECTIVE (describing word) in: 'something green was poking out'?", options: ["something", "green", "out", "poking"], correct: 1, hint: "An adjective describes what something looks like.", explanation: "'Green' describes the color - it's an adjective!" },
 
-            { id: 46, storyId: 4, category: "grammar", type: "fillblank", question: "Find the NOUN (person, place, or thing): 'He found a big cardboard _____ in the garage.'", words: ["box", "found", "big", "he"], correct: "box", hint: "A noun is a thing you can touch or see.", explanation: "'Box' is a thing - it's a noun!" },
 
-            { id: 47, storyId: 5, category: "grammar", type: "multiple", question: "In 'She pedaled all the way down the street,' which word is an ADVERB telling us WHERE?", options: ["street", "down", "pedaled", "She"], correct: 1, hint: "An adverb can tell us where something happened.", explanation: "'Down' tells us the direction she went!" },
 
-            { id: 48, storyId: 6, category: "grammar", type: "multiple", question: "In 'Marco thought about keeping both cookies for himself,' which word is a PRONOUN?", options: ["Marco", "keeping", "cookies", "himself"], correct: 3, hint: "A pronoun takes the place of a person's name.", explanation: "'Himself' is a pronoun referring back to Marco!" },
 
-            { id: 49, storyId: 1, category: "grammar", type: "multiple", question: "'Max plays with the kids AFTER school.' What type of word is 'after'?", options: ["Preposition", "Adjective", "Noun", "Verb"], correct: 0, hint: "This word shows the relationship of time.", explanation: "'After' is a preposition showing when!" },
 
-            { id: 50, storyId: 4, category: "grammar", type: "multiple", question: "In 'Ben felt bored BUT then he found a box.' What does 'but' do?", options: ["Shows time", "Shows location", "Connects opposite ideas", "Describes Ben"], correct: 2, hint: "'But' is a conjunction that shows contrast.", explanation: "'But' connects two different ideas - bored vs. finding something!" },
 
-            { id: 51, storyId: 2, category: "grammar", type: "multiple", question: "Which word is an ADJECTIVE: 'They talked about their FAVORITE books.'", options: ["talked", "favorite", "They", "books"], correct: 1, hint: "Which word describes the books?", explanation: "'Favorite' describes which books - it's an adjective!" },
 
-            { id: 52, storyId: 5, category: "grammar", type: "multiple", question: "'Jada SLOWLY took a deep breath.' What kind of word is 'slowly'?", options: ["Adverb", "Noun", "Verb", "Adjective"], correct: 0, hint: "This word tells HOW she took a breath.", explanation: "'Slowly' is an adverb - it describes how the action was done!" },
 
-            { id: 53, storyId: 3, category: "inference", type: "multiple", question: "Why did the narrator shout 'Look, Grandma!'?", options: ["She saw a bug", "She wanted breakfast", "She was scared", "She was excited to see the plants"], correct: 3, hint: "What had the narrator been waiting for?", explanation: "After waiting so long, seeing the plants grow was exciting!" },
 
-            { id: 54, storyId: 6, category: "inference", type: "multiple", question: "Why did Marco give Leo the BIGGER piece?", options: ["He didn't like that part", "Mom told him to", "Leo asked for more", "He wanted to be extra kind"], correct: 3, hint: "Marco already decided to share. Why give the bigger piece?", explanation: "Giving the bigger piece shows extra kindness and generosity!" },
 
-            { id: 55, storyId: 4, category: "vocab", type: "multiple", question: "What does 'garage' mean?", options: ["A bedroom", "A kitchen", "A room where cars are kept", "A backyard"], correct: 2, hint: "Where did Ben find the cardboard box?", explanation: "A garage is usually attached to a house and stores cars!" },
 
-            { id: 56, storyId: 5, category: "vocab", type: "multiple", question: "What does 'quit' mean?", options: ["Give up and stop", "Go faster", "Try harder", "Start over"], correct: 0, hint: "Dad said 'Don't quit now.' What did he NOT want Jada to do?", explanation: "'Quit' means to stop trying or give up!" },
 
-            { id: 57, storyId: 7, category: "theme", type: "multiple", question: "What is the main theme of this story?", options: ["Helping others feels good", "Parks are fun", "Milk is good for kittens", "Kittens are cute"], correct: 0, hint: "How did Sam feel at the end of the story?", explanation: "Sam felt good inside after helping return the lost kitten!" },
 
-            { id: 58, storyId: 8, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["School plays are boring", "Singing is hard", "Teachers are mean", "Family support helps us be brave"], correct: 3, hint: "What helped Emma feel confident on stage?", explanation: "Seeing her family cheering for her helped Emma do her best!" },
 
-            { id: 59, storyId: 9, category: "theme", type: "multiple", question: "What is the message of Tina's story?", options: ["Being small is bad", "Turtles can't climb", "Never give up on your goals", "Rocks are dangerous"], correct: 2, hint: "What did Tina do even when she fell?", explanation: "Tina kept trying until she reached her goal!" },
 
             { id: 60, storyId: 10, category: "theme", type: "multiple", question: "What is the theme of Grandpa's story?", options: ["Pancakes are delicious", "Secrets are bad", "Cooking is difficult", "Love makes things special"], correct: 3, hint: "What was Grandpa's secret ingredient?", explanation: "Grandpa said the secret was love - making things with love makes them special!" },
 
@@ -9696,11 +10025,8 @@ var questions = [
 
             { id: 62, storyId: 12, category: "theme", type: "multiple", question: "What is the main message of this story?", options: ["Parks are dirty", "Adults should do all the work", "Awards are important", "One person can inspire big changes"], correct: 3, hint: "What happened when Amir started cleaning?", explanation: "Amir started alone but inspired others to join - one person can make a difference!" },
 
-            { id: 63, storyId: 7, category: "story", type: "multiple", question: "Who is the main character in this story?", options: ["Mom", "Sam", "The little girl", "The kitten"], correct: 1, hint: "Who found the kitten and helped it?", explanation: "Sam is the main character who found and helped the kitten!" },
 
-            { id: 64, storyId: 8, category: "story", type: "multiple", question: "Where does this story take place?", options: ["At a store", "At home", "At a school", "At a park"], correct: 2, hint: "What event was Emma participating in?", explanation: "The story takes place at a school during a school play!" },
 
-            { id: 65, storyId: 9, category: "story", type: "multiple", question: "What was the problem in this story?", options: ["Other turtles were mean", "The rock was too far away", "The pond was too cold", "Tina wanted to climb but kept falling"], correct: 3, hint: "What challenge did Tina face?", explanation: "Tina's problem was that she kept slipping and falling when trying to climb!" },
 
             { id: 66, storyId: 10, category: "story", type: "multiple", question: "When does this story happen?", options: ["Every Sunday", "Every Monday", "Once a year", "Every Friday"], correct: 0, hint: "Read the first sentence of the story.", explanation: "The story says 'Every Sunday, Grandpa made his famous pancakes.'" },
 
@@ -9708,11 +10034,8 @@ var questions = [
 
             { id: 68, storyId: 12, category: "story", type: "multiple", question: "How was the problem solved?", options: ["The mayor cleaned the park", "The trash disappeared", "Amir and friends cleaned up together", "It rained and washed the trash away"], correct: 2, hint: "What did Amir ask his friends to do?", explanation: "Amir and his friends worked together to clean the park!" },
 
-            { id: 69, storyId: 7, category: "vocab", type: "multiple", question: "What does 'fluffy' mean?", options: ["Hard and rough", "Big and tall", "Soft and fuzzy", "Wet and cold"], correct: 2, hint: "The story describes the kitten as gray and fluffy.", explanation: "'Fluffy' means soft and covered with soft fur or material!" },
 
-            { id: 70, storyId: 8, category: "vocab", type: "multiple", question: "What does 'nervous' mean?", options: ["Worried and scared", "Tired and sleepy", "Happy and excited", "Angry and upset"], correct: 0, hint: "Emma's hands were shaking before the play.", explanation: "'Nervous' means feeling worried or scared about something!" },
 
-            { id: 71, storyId: 9, category: "vocab", type: "multiple", question: "What does 'cheered' mean?", options: ["Whispered quietly", "Shouted with happiness", "Shouted with sadness", "Ran away"], correct: 1, hint: "The other turtles did this when Tina reached the top.", explanation: "'Cheered' means to shout with joy and happiness!" },
 
             { id: 72, storyId: 10, category: "vocab", type: "multiple", question: "What does 'ingredient' mean?", options: ["Something you add to make food", "A cooking tool", "A type of pancake", "A kitchen"], correct: 0, hint: "Grandpa added a secret one to his pancakes.", explanation: "An 'ingredient' is something you put into food when cooking!" },
 
@@ -9720,11 +10043,8 @@ var questions = [
 
             { id: 74, storyId: 12, category: "vocab", type: "multiple", question: "What does 'inspire' mean?", options: ["Make someone laugh", "Make someone feel tired", "Make someone want to do something good", "Make someone angry"], correct: 2, hint: "Amir's actions made others want to help too.", explanation: "'Inspire' means to make others want to do something good!" },
 
-            { id: 75, storyId: 7, category: "phonics", type: "multiple", question: "Which word rhymes with 'park'?", options: ["dark", "work", "pork", "peek"], correct: 0, hint: "Listen to the ending sound: p-ARK", explanation: "'Dark' rhymes with 'park' - they both end in -ark!" },
 
-            { id: 76, storyId: 8, category: "phonics", type: "multiple", question: "In the word 'shaking,' what does the ending '-ing' show?", options: ["A place", "Past tense", "Something happening now", "A person"], correct: 2, hint: "Her hands WERE shaking - it was happening at that moment.", explanation: "The '-ing' ending shows an action is happening now!" },
 
-            { id: 77, storyId: 9, category: "phonics", type: "multiple", question: "How many syllables are in 'turtle'?", options: ["4", "1", "3", "2"], correct: 3, hint: "Clap it out: TUR-TLE", explanation: "'Turtle' has 2 syllables: TUR-TLE!" },
 
             { id: 78, storyId: 10, category: "phonics", type: "multiple", question: "Which word has the same beginning sound as 'special'?", options: ["sugar", "chair", "space", "school"], correct: 2, hint: "Listen for the 'sp' sound at the beginning.", explanation: "'Space' starts with the same 'sp' sound as 'special'!" },
 
@@ -9732,11 +10052,8 @@ var questions = [
 
             { id: 80, storyId: 12, category: "phonics", type: "multiple", question: "Which word has the long 'e' sound like 'clean'?", options: ["team", "said", "head", "bread"], correct: 0, hint: "Listen for the 'ee' sound in 'clean.'", explanation: "'Team' has the same long 'e' sound as 'clean'!" },
 
-            { id: 81, storyId: 7, category: "inference", type: "multiple", question: "Why did Sam feel good inside at the end?", options: ["Sam got to keep the kitten", "Sam found money", "Sam got a new pet", "Sam helped reunite the kitten with its owner"], correct: 3, hint: "What happened when the little girl came?", explanation: "Sam felt good because helping others makes us feel happy!" },
 
-            { id: 82, storyId: 8, category: "inference", type: "multiple", question: "Why did Emma's voice become 'clear and strong'?", options: ["The microphone helped", "She wasn't really nervous", "She took singing lessons", "She felt confident seeing her supportive family"], correct: 3, hint: "What did Emma see right before she started singing?", explanation: "Seeing her family's support gave Emma confidence!" },
 
-            { id: 83, storyId: 9, category: "inference", type: "multiple", question: "Why did the other turtles cheer at the end?", options: ["They felt sorry for Tina", "They were impressed that Tina succeeded", "They wanted Tina to come down", "They were making fun of her"], correct: 1, hint: "At first they laughed, but what changed?", explanation: "The turtles were impressed because Tina proved them wrong!" },
 
             { id: 84, storyId: 10, category: "inference", type: "multiple", question: "What does Lily learn at the end of the story?", options: ["Pancakes need sugar", "Love can make things feel special", "Secrets are always bad", "Grandpa is a bad cook"], correct: 1, hint: "Read the last sentence: 'Maybe love was the secret after all.'", explanation: "Lily realizes that love really can make things taste better!" },
 
@@ -9744,11 +10061,8 @@ var questions = [
 
             { id: 86, storyId: 12, category: "inference", type: "multiple", question: "Why did grown-ups join in to help?", options: ["They were inspired by the kids' hard work", "The mayor told them to", "They had nothing else to do", "They were being punished"], correct: 0, hint: "What happened when adults SAW the kids working?", explanation: "Seeing kids work hard inspired the adults to help too!" },
 
-            { id: 87, storyId: 7, category: "context", type: "multiple", question: "'The kitten PURRED and rubbed against Sam.' What does 'purred' mean?", options: ["Cried loudly", "Made a happy rumbling sound", "Ran away", "Growled angrily"], correct: 1, hint: "This happened after Sam gave the kitten milk - the kitten was happy.", explanation: "Cats 'purr' when they're happy - it's a soft rumbling sound!" },
 
-            { id: 88, storyId: 8, category: "context", type: "multiple", question: "'Emma took a deep breath and began to sing.' Why did she take a deep breath?", options: ["She was yawning", "She was out of air", "She was sick", "To calm her nerves before starting"], correct: 3, hint: "Emma was nervous before - what helps calm you down?", explanation: "Taking deep breaths helps calm us when we're nervous!" },
 
-            { id: 89, storyId: 9, category: "context", type: "multiple", question: "'She SLIPPED and fell.' What does 'slipped' mean?", options: ["Climbed faster", "Lost her grip and slid", "Jumped high", "Stopped moving"], correct: 1, hint: "This happened when Tina was trying to climb the rock.", explanation: "'Slipped' means to lose your grip and slide - often causing a fall!" },
 
             { id: 90, storyId: 10, category: "context", type: "multiple", question: "'Lily GIGGLED.' What does 'giggled' mean?", options: ["Cried sadly", "Shouted loudly", "Whispered quietly", "Laughed in a light, happy way"], correct: 3, hint: "This happened when Grandpa said something funny about love.", explanation: "'Giggled' means to laugh lightly in a happy, playful way!" },
 
@@ -9756,11 +10070,8 @@ var questions = [
 
             { id: 92, storyId: 12, category: "context", type: "multiple", question: "'The park was COVERED in trash.' What does 'covered' mean?", options: ["Trash was everywhere on it", "Hidden under something", "Clean and empty", "A little bit of trash"], correct: 0, hint: "Candy wrappers and bottles were 'everywhere.'", explanation: "'Covered' means something was spread all over it!" },
 
-            { id: 93, storyId: 7, category: "summary", type: "multiple", question: "Which is the best summary of this story?", options: ["Sam drinks milk with a kitten.", "Mom doesn't like kittens.", "A girl loses her kitten at the park.", "Sam finds a lost kitten, cares for it, and helps return it to its owner."], correct: 3, hint: "Include the beginning, middle, and end.", explanation: "A good summary tells what happened from start to finish!" },
 
-            { id: 94, storyId: 8, category: "summary", type: "multiple", question: "What is this story mainly about?", options: ["Why school plays are fun", "How to sing well", "Emma overcoming her nervousness with family support", "Emma's teacher is nice"], correct: 2, hint: "What was Emma's problem and how did she solve it?", explanation: "The story is about Emma facing her fear with help from her family!" },
 
-            { id: 95, storyId: 9, category: "summary", type: "multiple", question: "Which sentence best summarizes Tina's story?", options: ["A small turtle proves others wrong by never giving up.", "Ponds are nice places.", "Turtles can't climb rocks.", "Other turtles are mean."], correct: 0, hint: "What did Tina do that surprised everyone?", explanation: "The story shows that persistence pays off!" },
 
             { id: 96, storyId: 10, category: "summary", type: "multiple", question: "What is this story mainly about?", options: ["Sunday is a boring day", "Lily doesn't like breakfast", "A grandpa who loves cooking for his granddaughter", "How to make pancakes"], correct: 2, hint: "What makes Grandpa's pancakes special?", explanation: "The story is about the love between Grandpa and Lily!" },
 
@@ -9768,11 +10079,8 @@ var questions = [
 
             { id: 98, storyId: 12, category: "summary", type: "multiple", question: "What is this story mainly about?", options: ["Why parks get dirty", "The mayor of the town", "Amir getting an award", "A boy who starts a community effort to clean a park"], correct: 3, hint: "What action did Amir take that changed things?", explanation: "The story focuses on Amir starting a positive change in his community!" },
 
-            { id: 99, storyId: 7, category: "grammar", type: "multiple", question: "In 'The kitten looked scared,' which word is an ADJECTIVE?", options: ["kitten", "The", "looked", "scared"], correct: 3, hint: "Which word describes how the kitten felt?", explanation: "'Scared' is an adjective - it describes the kitten's feeling!" },
 
-            { id: 100, storyId: 8, category: "grammar", type: "multiple", question: "In 'Her voice was clear AND strong,' what kind of word is 'and'?", options: ["Adjective", "Conjunction", "Verb", "Noun"], correct: 1, hint: "'And' connects two words together.", explanation: "'And' is a conjunction - it joins 'clear' and 'strong' together!" },
 
-            { id: 101, storyId: 9, category: "grammar", type: "multiple", question: "In 'Tina climbed a little bit EACH day,' which word tells us WHEN?", options: ["each", "climbed", "little", "Tina"], correct: 0, hint: "How often did Tina climb?", explanation: "'Each' tells us how often - every single day!" },
 
             { id: 102, storyId: 10, category: "grammar", type: "multiple", question: "In 'He smiled and WHISPERED,' which word is a VERB?", options: ["He", "and", "whispered", "smiled"], correct: 2, hint: "Verbs are action words. What did Grandpa DO?", explanation: "'Whispered' is a verb - it's an action Grandpa did!" },
 
@@ -9780,11 +10088,8 @@ var questions = [
 
             { id: 104, storyId: 12, category: "grammar", type: "multiple", question: "In 'They picked up trash FOR two hours,' what kind of word is 'for'?", options: ["Adjective", "Verb", "Preposition", "Noun"], correct: 2, hint: "'For' shows how long something lasted.", explanation: "'For' is a preposition - it shows duration of time!" },
 
-            { id: 105, storyId: 13, category: "theme", type: "multiple", question: "What is the main theme of this story?", options: ["Taking care of animals creates friendship", "Camels need lots of water", "Qatar is a country", "The desert is hot"], correct: 0, hint: "How does Jamal feel about Sara?", explanation: "Jamal cares for Sara every day, and she is his best friend!" },
 
-            { id: 106, storyId: 14, category: "theme", type: "multiple", question: "What is the message of this story?", options: ["Markets are noisy", "Tea is delicious", "Scarves are pretty", "Spending time with family is special"], correct: 3, hint: "What made it 'the best day' for Fatima?", explanation: "The best part was sharing the experience with her grandmother!" },
 
-            { id: 107, storyId: 15, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["Parks are big", "New clothes are important", "Picnics are fun", "Being with family brings joy"], correct: 3, hint: "What was Yusuf's favorite part of the reunion?", explanation: "Yusuf's favorite part was being with his whole family!" },
 
             { id: 108, storyId: 16, category: "theme", type: "multiple", question: "What is the theme of Khalid's story?", options: ["New experiences can make us feel proud", "Birds should be free", "Falcons are fast", "Fathers are busy"], correct: 0, hint: "How did Khalid feel when he held the falcon?", explanation: "Khalid felt proud when he got to hold the falcon!" },
 
@@ -9792,11 +10097,8 @@ var questions = [
 
             { id: 110, storyId: 18, category: "theme", type: "multiple", question: "What lesson does Omar learn from his great-grandfather's story?", options: ["Old stories are boring", "Hard work and courage can change your life", "Pearls are valuable", "Swimming is dangerous"], correct: 1, hint: "What does Omar remember when things get difficult?", explanation: "The story teaches that hard work and bravery lead to success!" },
 
-            { id: 111, storyId: 13, category: "story", type: "multiple", question: "Where does this story take place?", options: ["In a city", "At school", "At a zoo", "In the desert in Qatar"], correct: 3, hint: "Where does Jamal live with his camel?", explanation: "The story takes place in the desert in Qatar!" },
 
-            { id: 112, storyId: 14, category: "story", type: "multiple", question: "Who are the main characters in this story?", options: ["Fatima and her teacher", "Fatima and her friend", "Fatima and her grandmother", "Fatima and her mother"], correct: 2, hint: "Who did Fatima go to the souq with?", explanation: "Fatima went to Souq Waqif with her grandmother (Teta)!" },
 
-            { id: 113, storyId: 15, category: "story", type: "sequence", question: "Put the reunion events in order:", items: ["Yusuf put on his new blue shirt", "The family drove to the park", "They ate lunch at the long table", "Grandmother gave gifts"], hint: "Think about what happens first thing in the morning.", explanation: "First get dressed, then go to the park, then eat lunch, then gifts!" },
 
             { id: 114, storyId: 16, category: "story", type: "multiple", question: "What was the problem or challenge in this story?", options: ["Khalid wanted to hold a falcon", "The falcon was sick", "The trainer was mean", "The birds flew away"], correct: 0, hint: "What did Khalid ask at the end?", explanation: "Khalid wanted to experience holding a falcon himself!" },
 
@@ -9804,11 +10106,8 @@ var questions = [
 
             { id: 116, storyId: 18, category: "story", type: "multiple", question: "When does the main part of Great-grandfather's story take place?", options: ["Yesterday", "Long ago in the past", "Next year", "Today"], correct: 1, hint: "The story says Great-grandfather was a pearl diver 'long ago.'", explanation: "The pearl diving story happened long ago in Qatar's history!" },
 
-            { id: 117, storyId: 13, category: "vocab", type: "multiple", question: "What does 'gently' mean?", options: ["Angrily", "Loudly", "Quickly and roughly", "Softly and carefully"], correct: 3, hint: "Jamal brushes Sara's fur gently so he doesn't hurt her.", explanation: "'Gently' means doing something softly and with care!" },
 
-            { id: 118, storyId: 14, category: "vocab", type: "multiple", question: "What is a 'souq'?", options: ["A traditional market", "A desert", "A type of food", "A house"], correct: 0, hint: "Souq Waqif was full of colors, sounds, and things to buy.", explanation: "A 'souq' is a traditional Arab market where people buy and sell things!" },
 
-            { id: 119, storyId: 15, category: "vocab", type: "multiple", question: "What does 'reunion' mean?", options: ["A family gathering where relatives come together", "A type of party game", "A picnic basket", "A park name"], correct: 0, hint: "Yusuf's whole family got together for the day.", explanation: "A 'reunion' is when family or friends come together after being apart!" },
 
             { id: 120, storyId: 16, category: "vocab", type: "multiple", question: "What is a 'lure' in falcon training?", options: ["A cage for birds", "A bird's name", "Something swung to attract the falcon", "A type of food"], correct: 2, hint: "The trainer SWUNG a lure and the falcon caught it.", explanation: "A 'lure' is an object used to train falcons to fly and catch things!" },
 
@@ -9816,11 +10115,8 @@ var questions = [
 
             { id: 122, storyId: 18, category: "vocab", type: "multiple", question: "What does 'courage' mean?", options: ["Being smart", "Being scared", "Being fast", "Being brave when facing danger"], correct: 3, hint: "The work was hard and dangerous, but Great-grandfather did it anyway.", explanation: "'Courage' means being brave, especially when things are difficult or challenging!" },
 
-            { id: 123, storyId: 13, category: "phonics", type: "multiple", question: "Which word rhymes with 'camel'?", options: ["caramel", "came", "came", "mammal"], correct: 3, hint: "Listen to the ending sound: cam-EL, mamm-AL", explanation: "'Mammal' rhymes with 'camel' - they have similar endings!" },
 
-            { id: 124, storyId: 14, category: "phonics", type: "multiple", question: "How many syllables are in 'grandmother'?", options: ["2", "1", "3", "4"], correct: 2, hint: "Clap it out: GRAND-MOTH-ER", explanation: "'Grandmother' has 3 syllables: GRAND-MOTH-ER!" },
 
-            { id: 125, storyId: 15, category: "phonics", type: "multiple", question: "Which word has the long 'e' sound like in 'reunion'?", options: ["bed", "head", "need", "bread"], correct: 2, hint: "Listen for the 'ee' sound.", explanation: "'Need' has the same long 'e' sound as the 'e' in 'reunion'!" },
 
             { id: 126, storyId: 16, category: "phonics", type: "multiple", question: "In 'excitement,' what does the suffix '-ment' do?", options: ["Shows location", "Turns the word into a noun", "Makes it past tense", "Makes it plural"], correct: 1, hint: "Excited is how you feel, excitement is the thing you feel.", explanation: "The '-ment' suffix turns 'excite' into the noun 'excitement'!" },
 
@@ -9828,11 +10124,8 @@ var questions = [
 
             { id: 128, storyId: 18, category: "phonics", type: "multiple", question: "In 'perfectly,' the suffix '-ly' makes it what type of word?", options: ["A noun", "An adjective", "A verb", "An adverb"], correct: 3, hint: "It describes HOW the pearl was round.", explanation: "Adding '-ly' turns 'perfect' into the adverb 'perfectly'!" },
 
-            { id: 129, storyId: 13, category: "inference", type: "multiple", question: "Why does Sara make a happy sound when Jamal brushes her?", options: ["She is hungry", "She is tired", "She wants to run", "She enjoys being cared for"], correct: 3, hint: "How do you feel when someone takes good care of you?", explanation: "Sara is happy because Jamal treats her with love and care!" },
 
-            { id: 130, storyId: 14, category: "inference", type: "multiple", question: "Why is 'Teta' special to Fatima?", options: ["Teta is her beloved grandmother", "Teta makes the best tea", "Teta owns the souq", "Teta buys her expensive things"], correct: 0, hint: "'Teta' is an Arabic word for grandmother. How did the day end?", explanation: "Fatima loves spending quality time with her grandmother!" },
 
-            { id: 131, storyId: 15, category: "inference", type: "multiple", question: "Why did the reunion make everyone smile?", options: ["The food was funny", "Being together and celebrating brought happiness", "The park was pretty", "The clothes were silly"], correct: 1, hint: "What was Yusuf's favorite part?", explanation: "Family reunions bring everyone together, which makes everyone happy!" },
 
             { id: 132, storyId: 16, category: "inference", type: "multiple", question: "Why did the trainer place the falcon 'gently' on Khalid's hand?", options: ["The falcon was heavy", "The trainer was tired", "To keep both Khalid and the falcon safe", "The falcon was sleeping"], correct: 2, hint: "Falcons have sharp talons and need careful handling.", explanation: "The trainer was careful to protect both Khalid and the falcon!" },
 
@@ -9840,11 +10133,8 @@ var questions = [
 
             { id: 134, storyId: 18, category: "inference", type: "multiple", question: "Why does Omar 'keep that story in his heart'?", options: ["The story inspires him when times are hard", "He wants to be a diver too", "His mother told him to", "He likes pearls"], correct: 0, hint: "What does Omar remember when things get difficult?", explanation: "Great-grandfather's bravery inspires Omar to face his own challenges!" },
 
-            { id: 135, storyId: 13, category: "context", type: "multiple", question: "'Sara is TAN and has soft fur.' What color is 'tan'?", options: ["Black", "Red", "White", "Light brown, like sand"], correct: 3, hint: "Think about the color of desert sand.", explanation: "'Tan' is a light brown color, like sand or camel fur!" },
 
-            { id: 136, storyId: 14, category: "context", type: "multiple", question: "'The smell of OUD filled the air.' What is 'oud'?", options: ["A type of food", "A loud noise", "A fragrant perfume or incense", "A type of fabric"], correct: 2, hint: "It has a SMELL that filled the air at the market.", explanation: "'Oud' is a traditional fragrant wood used for perfume and incense!" },
 
-            { id: 137, storyId: 15, category: "context", type: "multiple", question: "'Grandmother gave all the children small GIFTS.' What are 'gifts'?", options: ["Things you buy for yourself", "Things you give to others to show you care", "Food at a picnic", "Games at a park"], correct: 1, hint: "Grandmother wrapped them in bright paper.", explanation: "Gifts are presents you give to show someone you care about them!" },
 
             { id: 138, storyId: 16, category: "context", type: "multiple", question: "'The birds sat on wooden PERCHES.' What are 'perches'?", options: ["Stands where birds sit", "Windows", "Food bowls", "Cages"], correct: 0, hint: "The falcons SAT on them.", explanation: "'Perches' are stands or poles where birds rest and sit!" },
 
@@ -9852,11 +10142,8 @@ var questions = [
 
             { id: 140, storyId: 18, category: "context", type: "multiple", question: "'The pearl GLOWED like the moon.' What does 'glowed' mean?", options: ["Shined with soft light", "Grew bigger", "Fell down", "Made noise"], correct: 0, hint: "The moon gives off soft, gentle light at night.", explanation: "'Glowed' means to shine with a soft, warm light!" },
 
-            { id: 141, storyId: 13, category: "summary", type: "multiple", question: "Which is the best summary of this story?", options: ["Camels live in Qatar.", "A boy named Jamal loves and cares for his camel Sara.", "Camels drink a lot of water.", "The desert is a nice place."], correct: 1, hint: "What is the story mainly about?", explanation: "The story is about Jamal's loving friendship with his camel!" },
 
-            { id: 142, storyId: 14, category: "summary", type: "multiple", question: "What is this story mainly about?", options: ["A girl's special trip to the market with her grandmother", "Why scarves are purple", "How to make karak tea", "Spices piled like mountains"], correct: 0, hint: "Who went where, and why was it special?", explanation: "The story is about Fatima's wonderful day at the souq with her Teta!" },
 
-            { id: 143, storyId: 15, category: "summary", type: "multiple", question: "What is this story mainly about?", options: ["A boy enjoying a family reunion at the park", "Why blue shirts are nice", "How to have a picnic", "How to wrap gifts"], correct: 0, hint: "What special event is Yusuf celebrating?", explanation: "The story is about Yusuf's happy day at the family reunion!" },
 
             { id: 144, storyId: 16, category: "summary", type: "multiple", question: "Which is the best summary?", options: ["A boy watches a falcon show and gets to hold a falcon.", "Trainers are nice people.", "Birds wear leather hoods.", "Falcons are fast birds."], correct: 0, hint: "What happened and how did it end?", explanation: "The story follows Khalid's exciting experience at the falcon show!" },
 
@@ -9864,11 +10151,8 @@ var questions = [
 
             { id: 146, storyId: 18, category: "summary", type: "multiple", question: "Which is the best summary?", options: ["Pearl diving is dangerous.", "A boy is inspired by his great-grandfather's brave story of pearl diving.", "Boats are expensive.", "The Arabian Gulf has oysters."], correct: 1, hint: "What does Omar learn from the story?", explanation: "The story shows how family history can inspire us today!" },
 
-            { id: 147, storyId: 13, category: "grammar", type: "multiple", question: "In 'Sara is TAN and has SOFT fur,' which words are adjectives?", options: ["is, has", "Sara, fur", "and, has", "tan, soft"], correct: 3, hint: "Adjectives describe nouns. What describes the fur?", explanation: "'Tan' and 'soft' are adjectives - they describe the fur!" },
 
-            { id: 148, storyId: 14, category: "grammar", type: "multiple", question: "In 'They SAT and DRANK karak tea,' which words are verbs?", options: ["sat, drank", "They, tea", "karak, tea", "and, together"], correct: 0, hint: "Verbs are action words. What did they DO?", explanation: "'Sat' and 'drank' are verbs - they show actions!" },
 
-            { id: 149, storyId: 15, category: "grammar", type: "multiple", question: "In 'He put on HIS new blue shirt,' what kind of word is 'his'?", options: ["Pronoun", "Verb", "Adjective", "Noun"], correct: 0, hint: "'His' shows that the shirt belongs to Yusuf.", explanation: "'His' is a possessive pronoun - it shows ownership!" },
 
             { id: 150, storyId: 16, category: "grammar", type: "multiple", question: "In 'The falcon flew FAST like an arrow,' what kind of word is 'fast'?", options: ["Verb", "Noun", "Conjunction", "Adverb"], correct: 3, hint: "It describes HOW the falcon flew.", explanation: "'Fast' is an adverb - it describes how the falcon flew!" },
 
@@ -9876,33 +10160,19 @@ var questions = [
 
             { id: 152, storyId: 18, category: "grammar", type: "multiple", question: "In 'He would dive DEEP into the Arabian Gulf,' which word is an adverb?", options: ["Gulf", "He", "dive", "deep"], correct: 3, hint: "It describes HOW or WHERE he dove.", explanation: "'Deep' is an adverb describing how far down he dove!" },
 
-            { id: 153, storyId: 19, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A girl who plants a tree", "A girl who sees a bird", "A girl who finds a pet", "A girl who goes to school"], correct: 1, hint: "Think about what Mia watches in the story.", explanation: "The story is about Mia seeing a pretty blue bird!" },
 
-            { id: 154, storyId: 19, category: "story", type: "multiple", question: "Who is the main character in the story?", options: ["Dad", "Mia", "Mom", "The bird"], correct: 1, hint: "Who does the story follow?", explanation: "Mia is the main character who sees the bird!" },
 
-            { id: 155, storyId: 19, category: "vocab", type: "fillblank", question: "The bird sat on a _____.", words: ["branch", "rock", "roof", "fence"], correct: "branch", hint: "It's part of a tree.", explanation: "A branch is part of a tree where birds like to sit!" },
 
-            { id: 156, storyId: 19, category: "phonics", type: "multiple", question: "Which word rhymes with 'blue'?", options: ["Small", "Flew", "Bird", "Sang"], correct: 1, hint: "Listen to the ending sound: bl-UE.", explanation: "'Blue' and 'flew' both end with the 'oo' sound!" },
 
-            { id: 157, storyId: 20, category: "theme", type: "multiple", question: "What is the main idea of this story?", options: ["Kai goes to school", "Kai eats breakfast", "Kai builds a snowman", "Kai plays inside"], correct: 2, hint: "What does Kai make outside?", explanation: "The main idea is that Kai builds a snowman with his family's help!" },
 
-            { id: 158, storyId: 20, category: "story", type: "multiple", question: "Where does this story take place?", options: ["At the beach", "In the kitchen", "At school", "Outside in the snow"], correct: 3, hint: "Where can you build a snowman?", explanation: "The story happens outside where it snowed!" },
 
-            { id: 159, storyId: 20, category: "vocab", type: "multiple", question: "What does 'melt' mean?", options: ["To change color", "To get bigger", "To turn from solid to liquid", "To freeze solid"], correct: 2, hint: "What happens to ice when it gets warm?", explanation: "'Melt' means to turn from solid to liquid, like ice becoming water!" },
 
-            { id: 160, storyId: 20, category: "inference", type: "multiple", question: "Why did Kai hope it would stay cold?", options: ["He wanted more snow", "He didn't want his snowman to melt", "He was hot", "He wanted to go inside"], correct: 1, hint: "What happens to snowmen when it gets warm?", explanation: "Kai wanted it to stay cold so his snowman wouldn't melt!" },
 
-            { id: 161, storyId: 20, category: "phonics", type: "multiple", question: "Which word has the long 'o' sound like 'snow'?", options: ["Cold", "Got", "Top", "Hot"], correct: 0, hint: "Listen for the 'oh' sound.", explanation: "'Cold' has the long 'o' sound like 'snow'!" },
 
-            { id: 162, storyId: 21, category: "theme", type: "multiple", question: "What is the theme of this story?", options: ["Playing alone", "Going to the store", "Being scared of heights", "Working together as a family"], correct: 3, hint: "How did the treehouse get built?", explanation: "The theme is about working together as a family to build something special!" },
 
-            { id: 163, storyId: 21, category: "story", type: "multiple", question: "What is the problem in the story?", options: ["Dad is too busy", "It rains every day", "The kids want a treehouse but don't have one", "The kids have no toys"], correct: 2, hint: "What do Zara and Amir want at the beginning?", explanation: "The problem is that they wanted a treehouse but didn't have one yet!" },
 
-            { id: 164, storyId: 21, category: "vocab", type: "fillblank", question: "They climbed up the _____ to the treehouse.", words: ["ladder", "stairs", "rope", "branch"], correct: "ladder", hint: "It has steps to climb up.", explanation: "A ladder is used to climb up to high places like treehouses!" },
 
-            { id: 165, storyId: 21, category: "summary", type: "multiple", question: "Which sentence best summarizes the story?", options: ["Zara painted the treehouse red.", "Dad built a treehouse by himself.", "A family worked together for four weeks to build a treehouse.", "Amir didn't help with the treehouse."], correct: 2, hint: "Think about what happened from beginning to end.", explanation: "The family worked together for four weeks to build the treehouse!" },
 
-            { id: 166, storyId: 21, category: "grammar", type: "multiple", question: "In 'Amir painted the walls bright blue,' what is the verb?", options: ["blue", "walls", "Amir", "painted"], correct: 3, hint: "A verb shows action. What did Amir do?", explanation: "'Painted' is the verb - it's the action Amir did!" },
 
             { id: 167, storyId: 22, category: "theme", type: "multiple", question: "What is the theme of this story?", options: ["Walking is good exercise", "Rainy days are sad", "Libraries are boring", "Books can take you on adventures"], correct: 3, hint: "What did Noah discover about reading?", explanation: "The theme is that books can take you on wonderful adventures!" },
 
@@ -9944,93 +10214,49 @@ var questions = [
 
             { id: 186, storyId: 24, category: "phonics", type: "multiple", question: "Which word has the same vowel sound as 'team'?", options: ["Ten", "Step", "Them", "Steam"], correct: 3, hint: "Listen for the long 'e' sound.", explanation: "'Steam' has the same long 'e' sound as 'team'!" },
 
-            { id: 187, storyId: 19, category: "story", type: "multiple", question: "What happened at the end of the story?", options: ["The bird sang", "The bird fell asleep", "The bird flew away", "Mia caught the bird"], correct: 2, hint: "What did the bird do last?", explanation: "At the end, the bird flew away and Mia waved goodbye!" },
 
-            { id: 188, storyId: 19, category: "inference", type: "multiple", question: "How do you think Mia felt when the bird flew away?", options: ["Angry", "A little sad but happy she saw it", "Scared", "Confused"], correct: 1, hint: "She waved goodbye - what does that tell us?", explanation: "Mia probably felt a little sad but was happy she got to see the pretty bird!" },
 
-            { id: 189, storyId: 19, category: "context", type: "multiple", question: "What does 'pretty' mean in 'a pretty song'?", options: ["Short", "Strange", "Beautiful", "Loud"], correct: 2, hint: "It's a nice compliment about the song.", explanation: "'Pretty' means beautiful - the bird's song sounded lovely!" },
 
-            { id: 190, storyId: 19, category: "grammar", type: "multiple", question: "In 'The bird sat on a branch,' what is the verb?", options: ["sat", "branch", "bird", "The"], correct: 0, hint: "A verb shows action - what did the bird do?", explanation: "'Sat' is the verb - it tells us what the bird did!" },
 
-            { id: 191, storyId: 20, category: "story", type: "multiple", question: "Who helped Kai make the snowman?", options: ["His friends", "His teacher", "No one", "His mom and dad"], correct: 3, hint: "Who gave him the carrot and hat?", explanation: "Mom and Dad helped by giving him a carrot and an old hat!" },
 
-            { id: 192, storyId: 20, category: "context", type: "multiple", question: "What does 'stacked' mean in 'He stacked them on top of each other'?", options: ["Kicked them", "Rolled them", "Threw them", "Put them in a pile"], correct: 3, hint: "Think about putting things one on top of another.", explanation: "'Stacked' means to put things on top of each other in a pile!" },
 
-            { id: 193, storyId: 20, category: "grammar", type: "multiple", question: "In 'His snowman looked happy,' what type of word is 'happy'?", options: ["Verb", "Noun", "Adjective", "Pronoun"], correct: 2, hint: "It describes how the snowman looked.", explanation: "'Happy' is an adjective - it describes the snowman!" },
 
-            { id: 194, storyId: 21, category: "inference", type: "multiple", question: "Why did Zara and Amir want to look out at their neighborhood from the treehouse?", options: ["They were lost", "To throw things", "To spy on people", "To feel proud of what they built"], correct: 3, hint: "They had just finished building it together.", explanation: "They wanted to enjoy the view from their special place they worked hard to build!" },
 
-            { id: 195, storyId: 21, category: "context", type: "multiple", question: "What does 'hammered' mean in 'Dad hammered'?", options: ["Carried", "Painted", "Hit with a hammer", "Dropped"], correct: 2, hint: "A hammer is a tool used to hit nails.", explanation: "'Hammered' means to hit with a hammer - Dad used it to put in the nails!" },
 
-            { id: 196, storyId: 21, category: "phonics", type: "multiple", question: "Which word rhymes with 'blue' in 'Amir painted the walls bright blue'?", options: ["Wall", "True", "Paint", "Bright"], correct: 1, hint: "Listen for the 'oo' sound at the end.", explanation: "'Blue' and 'true' both end with the 'oo' sound!" },
 
-            { id: 197, storyId: 19, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["A bird learns to sing", "A bird gets lost in the woods", "A girl catches a bird for a pet", "A girl sees and enjoys watching a blue bird"], correct: 3, hint: "Think about the main events.", explanation: "The story is about Mia seeing and enjoying a pretty blue bird!" },
 
-            { id: 198, storyId: 19, category: "vocab", type: "multiple", question: "What does 'waved' mean?", options: ["To jump up and down", "To shout loudly", "To move your hand to say hello or goodbye", "To run fast"], correct: 2, hint: "It's what Mia did when the bird left.", explanation: "'Waved' means to move your hand back and forth to say hello or goodbye!" },
 
-            { id: 199, storyId: 20, category: "summary", type: "multiple", question: "What is the best summary of this story?", options: ["Kai builds a snowman with his family's help and hopes it stays cold", "Kai has a snowball fight", "Kai goes sledding with friends", "Kai plays video games inside"], correct: 0, hint: "Include the main thing Kai did and how he felt.", explanation: "The story is about Kai building a snowman and hoping it won't melt!" },
 
-            { id: 200, storyId: 20, category: "story", type: "multiple", question: "What is the setting of this story?", options: ["In a classroom", "Outside in the snow", "At the beach", "In a kitchen"], correct: 1, hint: "Where did Kai build his snowman?", explanation: "The setting is outside in the snow after it snowed all night!" },
 
-            { id: 201, storyId: 21, category: "story", type: "multiple", question: "How long did it take to build the treehouse?", options: ["Four weeks", "Two weeks", "One year", "One day"], correct: 0, hint: "The story tells us exactly how long.", explanation: "It took four weeks of working every weekend to build the treehouse!" },
 
-            { id: 202, storyId: 21, category: "vocab", type: "multiple", question: "What is a 'treehouse'?", options: ["A house made of trees", "A small house built in a tree", "A picture of a tree", "A tree that looks like a house"], correct: 1, hint: "It's built UP in a tree.", explanation: "A treehouse is a small house or fort built up in a tree!" },
 
-            { id: 203, storyId: 1, category: "inference", type: "truefalse", question: "Max knew the girl was sad before she started crying.", correct: true, hint: "Dogs can often sense when people are upset.", explanation: "True! Max sensed something was wrong and went to comfort her." },
 
-            { id: 204, storyId: 1, category: "context", type: "fillblank", question: "Max _____ over to the little girl to help her.", words: ["walked", "flew", "swam", "drove"], correct: "walked", hint: "How do dogs move?", explanation: "Max walked over to the girl - that's how dogs get around!" },
 
-            { id: 205, storyId: 1, category: "summary", type: "sequence", question: "Put these events in the correct order:", items: ["Max sees a sad girl", "Max walks over to help", "The girl feels better"], correct: [0, 1, 2], hint: "Think about what happened first, then next.", explanation: "First Max saw the girl, then he helped, then she felt better!" },
 
-            { id: 206, storyId: 2, category: "inference", type: "truefalse", question: "Anna was nervous about starting at a new school.", correct: true, hint: "How would you feel on your first day somewhere new?", explanation: "True! Starting at a new school can be nerve-wracking, but Anna made a friend." },
 
-            { id: 207, storyId: 2, category: "phonics", type: "matching", question: "Match the words that rhyme:", pairs: [["new", "blue"], ["friend", "end"], ["day", "play"]], hint: "Listen to the ending sounds of each word.", explanation: "New/blue, friend/end, and day/play all rhyme!" },
 
-            { id: 208, storyId: 2, category: "grammar", type: "fillblank", question: "Anna and her new friend _____ together at lunch.", words: ["sat", "sit", "sitting", "sits"], correct: "sat", hint: "This happened in the past.", explanation: "'Sat' is the past tense of 'sit' - the action already happened!" },
 
-            { id: 209, storyId: 3, category: "story", type: "truefalse", question: "The garden surprise happened because of hard work over time.", correct: true, hint: "Gardens don't grow overnight.", explanation: "True! Growing a garden takes patience and consistent effort." },
 
-            { id: 210, storyId: 3, category: "inference", type: "multiple", question: "What lesson does this story teach?", options: ["Plants grow too fast", "Hard work pays off", "Surprises are bad", "Gardens are boring"], correct: 1, hint: "Think about what the characters learned.", explanation: "The story teaches that hard work and patience lead to wonderful surprises!" },
 
-            { id: 211, storyId: 3, category: "vocab", type: "matching", question: "Match each garden word to its meaning:", pairs: [["seed", "what you plant"], ["bloom", "when flowers open"], ["soil", "dirt for planting"]], hint: "Think about what each word means in a garden.", explanation: "Seeds are planted, blooms are open flowers, and soil is the dirt!" },
 
-            { id: 212, storyId: 4, category: "context", type: "multiple", question: "What does 'adventure' mean in this story?", options: ["A boring time", "An exciting experience", "A sad moment", "A strange event"], correct: 1, hint: "Adventures are usually fun and interesting.", explanation: "An adventure is an exciting experience - the rainy day became fun!" },
 
-            { id: 213, storyId: 4, category: "summary", type: "sequence", question: "Put the rainy day events in order:", items: ["It started raining", "The kids went inside", "They found fun things to do", "The rain stopped"], correct: [0, 1, 2, 3], hint: "What happened first? What happened last?", explanation: "The rain started, they went inside, had fun, then the rain stopped!" },
 
-            { id: 214, storyId: 5, category: "theme", type: "truefalse", question: "The main message is that giving up is sometimes the best choice.", correct: false, hint: "Think about what the character actually did.", explanation: "False! The story shows that perseverance and not giving up leads to success." },
 
-            { id: 215, storyId: 5, category: "inference", type: "multiple", question: "How did the character probably feel after finally learning to ride?", options: ["Bored", "Scared", "Disappointed", "Proud and happy"], correct: 3, hint: "After working hard and succeeding, how would you feel?", explanation: "After all that hard work, the character felt proud and happy!" },
 
-            { id: 216, storyId: 6, category: "theme", type: "truefalse", question: "The story suggests that sharing makes everyone happier.", correct: true, hint: "What happened when characters shared?", explanation: "True! When we share, both the giver and receiver feel good." },
 
-            { id: 217, storyId: 6, category: "story", type: "multiple", question: "What is the resolution (ending) of this story?", options: ["They stop being friends", "The characters learn sharing is good", "Nothing changes", "Everyone is sad"], correct: 1, hint: "How does the problem get solved?", explanation: "The resolution is that the characters learn sharing makes everyone happy!" },
 
-            { id: 218, storyId: 6, category: "grammar", type: "matching", question: "Match each word to its part of speech:", pairs: [["sharing", "verb"], ["happy", "adjective"], ["friend", "noun"]], hint: "Verbs are actions, adjectives describe, nouns are people/places/things.", explanation: "Sharing is an action (verb), happy describes (adjective), friend is a thing (noun)!" },
 
-            { id: 219, storyId: 7, category: "theme", type: "truefalse", question: "This story teaches us about kindness to animals.", correct: true, hint: "What did Sam do for the kitten?", explanation: "True! Sam showed kindness by helping the lost kitten." },
 
-            { id: 220, storyId: 7, category: "story", type: "sequence", question: "Put Sam's actions in order:", items: ["Sam saw the kitten", "Sam gave it milk", "Sam took it home", "Mom said they could keep it"], correct: [0, 1, 2, 3], hint: "What did Sam do first, then next?", explanation: "Sam saw the kitten, gave it milk, took it home, then Mom agreed to keep it!" },
 
-            { id: 221, storyId: 7, category: "inference", type: "multiple", question: "Why do you think Sam named the kitten Misty?", options: ["The kitten was gray like mist", "It was raining", "It was a sunny day", "Sam's friend is named Misty"], correct: 0, hint: "What color was the kitten?", explanation: "The gray kitten was probably named Misty because gray is like the color of mist!" },
 
-            { id: 222, storyId: 7, category: "grammar", type: "fillblank", question: "The kitten _____ small and gray.", words: ["was", "were", "is", "are"], correct: "was", hint: "One kitten, past tense.", explanation: "'Was' is correct because it's one kitten and the story is in past tense!" },
 
-            { id: 223, storyId: 8, category: "theme", type: "multiple", question: "What is the main message of this story?", options: ["Plays are boring", "Singing is hard", "Parents shouldn't come to plays", "Facing your fears can lead to success"], correct: 3, hint: "Emma was nervous but what happened?", explanation: "The story teaches that facing our fears can lead to wonderful success!" },
 
-            { id: 224, storyId: 8, category: "inference", type: "truefalse", question: "Seeing her family helped Emma feel braver.", correct: true, hint: "What happened when she saw them?", explanation: "True! When Emma saw her family smiling, she felt encouraged to do her best." },
 
-            { id: 225, storyId: 8, category: "vocab", type: "matching", question: "Match the feeling words to their meanings:", pairs: [["nervous", "worried and shaky"], ["proud", "feeling good about yourself"], ["strong", "powerful and confident"]], hint: "Think about what each feeling means.", explanation: "Nervous means worried, proud means feeling good, strong means confident!" },
 
-            { id: 226, storyId: 8, category: "phonics", type: "multiple", question: "Which word has the same ending sound as 'strong'?", options: ["Stop", "Soft", "Start", "Song"], correct: 3, hint: "Listen for the '-ong' sound.", explanation: "'Song' and 'strong' both end with the '-ong' sound!" },
 
-            { id: 227, storyId: 9, category: "theme", type: "multiple", question: "What does Tina's story teach us?", options: ["Laughing at others is okay", "Small size means you can't succeed", "Turtles can't climb", "Persistence beats doubt"], correct: 3, hint: "Tina kept trying despite others laughing.", explanation: "Tina showed that persistence and not giving up can help you achieve your goals!" },
 
-            { id: 228, storyId: 9, category: "story", type: "truefalse", question: "The other turtles believed in Tina from the beginning.", correct: false, hint: "What did they do when she first tried?", explanation: "False! They laughed and said she was too small, but changed their minds later." },
 
-            { id: 229, storyId: 9, category: "inference", type: "sequence", question: "Put Tina's journey in order:", items: ["Tina wanted to climb", "Other turtles laughed", "Tina tried every day", "Tina reached the top"], correct: [0, 1, 2, 3], hint: "What happened from start to finish?", explanation: "Tina wanted to climb, others laughed, she kept trying, and finally succeeded!" },
 
-            { id: 230, storyId: 9, category: "context", type: "fillblank", question: "Tina could see the whole _____ from the top of the rock.", words: ["pond", "ocean", "sky", "forest"], correct: "pond", hint: "Where did Tina live?", explanation: "Tina lived by a pond, so from the rock she could see the whole pond!" },
 
             { id: 231, storyId: 10, category: "theme", type: "truefalse", question: "The story suggests that love makes ordinary things special.", correct: true, hint: "What was Grandpa's secret ingredient?", explanation: "True! Grandpa's love was what made his pancakes taste better than anyone else's." },
 
@@ -10056,29 +10282,17 @@ var questions = [
 
             { id: 242, storyId: 12, category: "grammar", type: "matching", question: "Match each word to its plural form:", pairs: [["wrapper", "wrappers"], ["bottle", "bottles"], ["child", "children"]], hint: "How do we make these words mean 'more than one'?", explanation: "Most words add -s, but 'child' becomes 'children' - it's irregular!" },
 
-            { id: 243, storyId: 13, category: "theme", type: "truefalse", question: "The story shows that animals can be good friends.", correct: true, hint: "What is Sara to Jamal?", explanation: "True! Sara the camel is Jamal's best friend." },
 
-            { id: 244, storyId: 13, category: "story", type: "sequence", question: "Put Jamal's daily routine with Sara in order:", items: ["Jamal gives Sara water", "Sara drinks a lot", "Jamal pets her nose"], correct: [0, 1, 2], hint: "What does Jamal do first, next, and last?", explanation: "Jamal gives water, Sara drinks, then Jamal pets her soft nose!" },
 
-            { id: 245, storyId: 13, category: "vocab", type: "multiple", question: "What color is 'tan'?", options: ["Pure white", "Dark blue", "Light brown", "Bright red"], correct: 2, hint: "Think about the color of sand in the desert.", explanation: "Tan is a light brown color, like the color of sand or a camel!" },
 
-            { id: 246, storyId: 13, category: "phonics", type: "matching", question: "Match the rhyming words:", pairs: [["big", "dig"], ["lot", "hot"], ["best", "rest"]], hint: "Listen to the ending sounds.", explanation: "Big/dig, lot/hot, and best/rest all rhyme!" },
 
-            { id: 247, storyId: 14, category: "theme", type: "multiple", question: "What makes this story special?", options: ["Markets are boring", "It celebrates Qatar's culture and family time", "Shopping is bad", "It's about a boring place"], correct: 1, hint: "What did Fatima enjoy about the souq?", explanation: "The story celebrates Qatari culture and the joy of spending time with family!" },
 
-            { id: 248, storyId: 14, category: "inference", type: "truefalse", question: "Fatima probably felt happy spending time with her grandmother.", correct: true, hint: "What did she say about the day?", explanation: "True! Fatima loved spending time with her grandmother at the souq." },
 
-            { id: 249, storyId: 14, category: "story", type: "sequence", question: "Put the souq visit events in order:", items: ["They went to the souq", "They saw spices and bought dates", "Fatima got a scarf", "They had karak tea"], correct: [0, 1, 2, 3], hint: "What happened during their visit?", explanation: "They arrived, shopped for items, Fatima got a scarf, then they had tea!" },
 
-            { id: 250, storyId: 14, category: "grammar", type: "fillblank", question: "Grandmother bought _____ fresh dates.", words: ["some", "any", "none", "never"], correct: "some", hint: "This word shows an amount in a positive sentence.", explanation: "'Some' is used in positive sentences to show an unspecified amount!" },
 
-            { id: 251, storyId: 15, category: "theme", type: "multiple", question: "What does this story celebrate?", options: ["The importance of family and togetherness", "Being alone", "Sleeping late", "A regular school day"], correct: 0, hint: "What made Yusuf happy?", explanation: "The story celebrates the joy of family reunions and togetherness!" },
 
-            { id: 252, storyId: 15, category: "inference", type: "truefalse", question: "The family reunion is an important event for Yusuf's family.", correct: true, hint: "What did the family do together?", explanation: "True! The whole family came together to enjoy a picnic and celebrate being a family!" },
 
-            { id: 253, storyId: 15, category: "vocab", type: "matching", question: "Match the reunion words to their meanings:", pairs: [["reunion", "family gathering"], ["picnic", "outdoor meal"], ["gifts", "presents given to show love"]], hint: "Think about what each word means.", explanation: "A reunion is a gathering, a picnic is an outdoor meal, and gifts are presents!" },
 
-            { id: 254, storyId: 15, category: "summary", type: "multiple", question: "Which sentence best summarizes this story?", options: ["Grandmother gave gifts away", "It was a regular morning", "Yusuf got a new shirt", "A boy enjoys a family reunion with a picnic, games, and gifts"], correct: 3, hint: "Include the main idea and important details.", explanation: "The story is about enjoying a family reunion with food, games, and togetherness!" },
 
             { id: 255, storyId: 16, category: "theme", type: "truefalse", question: "The story helps readers learn about falconry, an important tradition in Qatar.", correct: true, hint: "What cultural activity is featured?", explanation: "True! Falconry is an important part of Arabian heritage and tradition." },
 
@@ -10104,17 +10318,11 @@ var questions = [
 
             { id: 266, storyId: 18, category: "summary", type: "sequence", question: "Put Great-grandfather's story in order:", items: ["He dove for pearls", "He found a special pearl", "He sold it for money", "He bought his own boat"], correct: [0, 1, 2, 3], hint: "What happened in his life?", explanation: "He dove, found a pearl, sold it, then bought a boat to start his business!" },
 
-            { id: 267, storyId: 19, category: "story", type: "truefalse", question: "The bird stayed with Mia at the end of the story.", correct: false, hint: "What did the bird do?", explanation: "False! The bird flew away and Mia waved goodbye." },
 
-            { id: 268, storyId: 19, category: "summary", type: "sequence", question: "Put the story events in order:", items: ["Mia saw a bird", "The bird sang a song", "Mia smiled", "The bird flew away"], correct: [0, 1, 2, 3], hint: "What happened from beginning to end?", explanation: "Mia saw the bird, it sang, she smiled, then it flew away!" },
 
-            { id: 269, storyId: 20, category: "theme", type: "multiple", question: "What does this story celebrate?", options: ["Staying in bed", "Family fun and creativity", "Watching TV", "Being inside"], correct: 1, hint: "What did Kai and his family do together?", explanation: "The story celebrates family fun and being creative together!" },
 
-            { id: 270, storyId: 20, category: "inference", type: "truefalse", question: "Kai felt proud of the snowman he built.", correct: true, hint: "Kai called it 'his new friend.'", explanation: "True! Kai was proud of his snowman and didn't want it to melt." },
 
-            { id: 271, storyId: 21, category: "theme", type: "truefalse", question: "The story shows that working together makes hard tasks easier.", correct: true, hint: "How was the treehouse built?", explanation: "True! The whole family worked together for four weeks to build it." },
 
-            { id: 272, storyId: 21, category: "inference", type: "multiple", question: "Why was the treehouse 'their own special place'?", options: ["It was the only treehouse", "It was very expensive", "They built it together as a family", "It had toys inside"], correct: 2, hint: "What made it special to them?", explanation: "It was special because they worked hard together as a family to create it!" },
 
             { id: 273, storyId: 22, category: "story", type: "sequence", question: "Put Noah's amazing discovery in order:", items: ["Noah found a special book", "The pages began to glow", "He heard a tiny voice", "He finished reading"], correct: [0, 1, 2, 3], hint: "What happened when he opened the book?", explanation: "Noah found the book, it glowed, a voice spoke, then he read it!" },
 
@@ -10148,101 +10356,53 @@ var questions = [
 
             { id: 288, storyId: 24, category: "summary", type: "multiple", question: "What is the best summary of this story?", options: ["The weather was bad", "A young volunteer helps rescue a hiker and learns about teamwork and preparation", "Mountains are dangerous", "Carlos went hiking alone"], correct: 1, hint: "Include what happened and what was learned.", explanation: "Carlos helped rescue someone and learned valuable lessons about teamwork!" },
 
-            { id: 289, storyId: 25, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Bees are important insects that help plants and make honey", "Honey tastes good", "Bees are dangerous", "Queens are the only bees"], correct: 0, hint: "Think about all the things bees do.", explanation: "The text explains how bees are helpful by making honey and helping plants grow!" },
 
-            { id: 290, storyId: 25, category: "story", type: "multiple", question: "What type of text is this?", options: ["A poem", "A mystery story", "A fairy tale", "An informational text"], correct: 3, hint: "Does this text give facts or tell a made-up story?", explanation: "This is an informational text because it gives facts about bees!" },
 
-            { id: 291, storyId: 25, category: "vocab", type: "multiple", question: "What is 'nectar'?", options: ["A beehive", "Bee eggs", "A type of bee", "A sweet liquid from flowers"], correct: 3, hint: "Worker bees collect it from flowers.", explanation: "Nectar is a sweet liquid that flowers make, and bees use it to make honey!" },
 
-            { id: 292, storyId: 25, category: "phonics", type: "multiple", question: "Which word rhymes with 'bee'?", options: ["tree", "beg", "bet", "bed"], correct: 0, hint: "Look for the same ending sound: /ee/.", explanation: "Bee and tree both end with the /ee/ sound!" },
 
-            { id: 293, storyId: 25, category: "inference", type: "multiple", question: "Why would we have less food without bees?", options: ["Bees eat all our food", "Bees make all our food", "Bees help plants grow by spreading pollen", "Bees scare farmers"], correct: 2, hint: "How do bees help plants?", explanation: "Bees spread pollen which helps plants grow fruits and vegetables we eat!" },
 
-            { id: 294, storyId: 25, category: "context", type: "multiple", question: "In 'Bees live in hives,' what is a hive?", options: ["A bee's home", "A type of flower", "A kind of honey", "A bee's wing"], correct: 0, hint: "It's where many bees live together.", explanation: "A hive is the home where bees live together as a colony!" },
 
-            { id: 295, storyId: 25, category: "summary", type: "multiple", question: "What is the best summary of this text?", options: ["Bees live in hives, make honey, and help plants grow", "Flowers are pretty", "Queens lay eggs", "Bees sting people"], correct: 0, hint: "Include the main facts about bees.", explanation: "The text tells us about where bees live, what they make, and how they help!" },
 
-            { id: 296, storyId: 25, category: "grammar", type: "multiple", question: "In 'Worker bees collect nectar,' what is the verb?", options: ["Worker", "nectar", "bees", "collect"], correct: 3, hint: "A verb is an action word.", explanation: "Collect is the action the worker bees do!" },
 
-            { id: 297, storyId: 25, category: "inference", type: "truefalse", question: "True or False: The queen bee does most of the work collecting nectar.", options: ["True", "False"], correct: 1, hint: "Who collects nectar according to the text?", explanation: "False! Worker bees collect nectar. The queen bee lays eggs." },
 
-            { id: 298, storyId: 25, category: "vocab", type: "fillblank", question: "Bees help plants grow by spreading ______.", options: ["pollen", "water", "seeds", "leaves"], correct: 0, hint: "It's something bees carry from flower to flower.", explanation: "Pollen is the powder that bees spread to help plants reproduce!" },
 
-            { id: 299, storyId: 25, category: "theme", type: "multiple", question: "What is the author's purpose for writing this text?", options: ["To entertain with a funny story", "To persuade people to become beekeepers", "To describe a bee's feelings", "To inform readers about bees"], correct: 3, hint: "Why did the author write facts about bees?", explanation: "The author's purpose is to inform or teach readers facts about bees!" },
 
-            { id: 300, storyId: 25, category: "context", type: "multiple", question: "What does 'insects' mean in 'Bees are small insects'?", options: ["Small animals with six legs", "Fish", "Birds", "Plants"], correct: 0, hint: "Bees have six legs and a body in three parts.", explanation: "Insects are small animals with six legs, like bees, ants, and butterflies!" },
 
-            { id: 301, storyId: 26, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["The Sun is important for life on Earth", "Stars are far away", "The Sun is yellow", "Space is dark"], correct: 0, hint: "Think about what Earth needs from the Sun.", explanation: "The text explains how the Sun gives us light and heat which we need to survive!" },
 
-            { id: 302, storyId: 26, category: "story", type: "multiple", question: "What text structure does this passage use?", options: ["Compare and contrast", "Cause and effect", "Problem and solution", "Description"], correct: 3, hint: "The text describes facts about one topic.", explanation: "This passage uses description to tell us facts about the Sun!" },
 
-            { id: 303, storyId: 26, category: "vocab", type: "multiple", question: "What does 'solar system' mean?", options: ["The Sun and planets that orbit around it", "A heating system", "A kind of calendar", "A type of electricity"], correct: 0, hint: "Solar means 'related to the Sun.'", explanation: "The solar system is the Sun plus all the planets that go around it!" },
 
-            { id: 304, storyId: 26, category: "phonics", type: "multiple", question: "How many syllables are in the word 'sunlight'?", options: ["4", "2", "3", "1"], correct: 1, hint: "Clap it out: sun-light.", explanation: "Sunlight has two syllables: sun and light!" },
 
-            { id: 305, storyId: 26, category: "inference", type: "multiple", question: "Why do plants need sunlight?", options: ["To drink water", "To hide from animals", "To stay warm at night", "To grow and make food"], correct: 3, hint: "The text says plants need sunlight to grow and make...", explanation: "Plants use sunlight to make their own food through photosynthesis!" },
 
-            { id: 306, storyId: 26, category: "context", type: "fillblank", question: "The Sun is so big that one ______ Earths could fit inside it.", options: ["million", "thousand", "hundred", "billion"], correct: 0, hint: "It's a very large number—1,000,000.", explanation: "One million Earths could fit inside the Sun—that's how huge it is!" },
 
-            { id: 307, storyId: 26, category: "summary", type: "multiple", question: "Which sentence best summarizes this text?", options: ["The Sun is a star that gives Earth light and heat, and is very large.", "Space is cold.", "Plants like sunshine.", "The Sun is yellow."], correct: 0, hint: "Pick the sentence that includes the most important facts.", explanation: "A good summary includes the key facts: the Sun is a star, it gives light and heat, and it's huge!" },
 
-            { id: 308, storyId: 26, category: "grammar", type: "multiple", question: "In 'It gives Earth light and heat,' what type of word is 'and'?", options: ["Verb", "Noun", "Adjective", "Conjunction"], correct: 3, hint: "This word connects two things together.", explanation: "And is a conjunction that joins 'light' and 'heat' together!" },
 
-            { id: 309, storyId: 26, category: "inference", type: "truefalse", question: "True or False: Light from the Sun reaches Earth instantly.", options: ["True", "False"], correct: 1, hint: "How long does it take for sunlight to reach Earth?", explanation: "False! It takes about eight minutes for sunlight to reach Earth." },
 
-            { id: 310, storyId: 26, category: "vocab", type: "multiple", question: "What does 'planet' mean in this text?", options: ["A kind of light", "A type of star", "A large object that orbits a star", "A hot gas"], correct: 2, hint: "Earth is one of these.", explanation: "A planet is a large round object that travels around a star, like Earth orbits the Sun!" },
 
-            { id: 311, storyId: 26, category: "theme", type: "multiple", question: "Why is the Sun important according to this text?", options: ["It is pretty to look at", "It only shines during summer", "It gives light, heat, and helps plants grow", "It makes rain"], correct: 2, hint: "Think about what would happen without the Sun.", explanation: "The Sun provides light, warmth, and energy for plants—essential for life!" },
 
-            { id: 312, storyId: 26, category: "phonics", type: "multiple", question: "Which word has the same vowel sound as 'heat'?", options: ["hat", "feet", "head", "hot"], correct: 1, hint: "Listen for the long /ee/ sound.", explanation: "Heat and feet both have the long /ee/ vowel sound!" },
 
-            { id: 313, storyId: 27, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Dolphins are smart mammals that live in the ocean", "Dolphins are dangerous", "Dolphins are fish", "Dolphins cannot swim"], correct: 0, hint: "What does the text say dolphins are?", explanation: "The text explains that dolphins are intelligent mammals, not fish!" },
 
-            { id: 314, storyId: 27, category: "story", type: "multiple", question: "How does the author organize this information?", options: ["By listing problems dolphins cause", "By describing facts about dolphins", "By comparing dolphins to sharks", "By telling a story with a beginning, middle, and end"], correct: 1, hint: "The text gives facts about one topic.", explanation: "The author describes different facts about dolphins!" },
 
-            { id: 315, storyId: 27, category: "vocab", type: "multiple", question: "What are 'mammals'?", options: ["Animals with scales", "Animals that lay eggs", "Animals that live only in water", "Animals that breathe air and feed milk to babies"], correct: 3, hint: "Dolphins and humans are both this type of animal.", explanation: "Mammals breathe air and mother mammals feed milk to their babies!" },
 
-            { id: 316, storyId: 27, category: "phonics", type: "multiple", question: "What sound does 'ph' make in 'dolphins'?", options: ["/f/", "/d/", "/p/", "/h/"], correct: 0, hint: "Think of other 'ph' words like 'phone.'", explanation: "The letters 'ph' make the /f/ sound in dolphins!" },
 
-            { id: 317, storyId: 27, category: "inference", type: "multiple", question: "Why do dolphins live in pods?", options: ["Because they are shy", "To learn tricks", "For safety and to help find food", "Because they like to race"], correct: 2, hint: "The text says they work together for two reasons.", explanation: "Dolphins live in pods to find food together and protect each other from sharks!" },
 
-            { id: 318, storyId: 27, category: "context", type: "multiple", question: "What does 'self-aware' mean in this text?", options: ["Able to recognize themselves", "Afraid of themselves", "Very careful", "Fast swimmers"], correct: 0, hint: "Dolphins can recognize themselves in mirrors.", explanation: "Self-aware means knowing and recognizing yourself, like seeing yourself in a mirror!" },
 
-            { id: 319, storyId: 27, category: "summary", type: "sequence", question: "Put these facts in the order they appear in the text:", options: ["Dolphins are mammals, not fish", "Dolphins use clicks and whistles to communicate", "Dolphins can recognize themselves in mirrors", "Dolphins live in groups called pods"], correct: 0, hint: "Re-read the text and find each fact.", explanation: "The text presents facts in this order: mammals, communication, mirrors, pods!" },
 
-            { id: 320, storyId: 27, category: "grammar", type: "multiple", question: "In 'Dolphins are very smart animals,' what is the adjective?", options: ["are", "animals", "Dolphins", "smart"], correct: 3, hint: "An adjective describes a noun.", explanation: "Smart is an adjective that describes what kind of animals dolphins are!" },
 
-            { id: 321, storyId: 27, category: "inference", type: "truefalse", question: "True or False: Dolphins need to come to the surface to breathe.", options: ["True", "False"], correct: 0, hint: "The text says dolphins breathe air like humans.", explanation: "True! Since dolphins are mammals that breathe air, they must come up for air." },
 
-            { id: 322, storyId: 27, category: "vocab", type: "fillblank", question: "Dolphins live in groups called ______.", options: ["pods", "herds", "flocks", "packs"], correct: 0, hint: "It's a special name for a dolphin group.", explanation: "A group of dolphins is called a pod!" },
 
-            { id: 323, storyId: 27, category: "theme", type: "multiple", question: "What is the author's purpose?", options: ["To tell a funny story about dolphins", "To warn people about dolphins", "To sell dolphin toys", "To teach readers facts about dolphins"], correct: 3, hint: "The text is full of facts and information.", explanation: "The author wants to inform readers about interesting facts about dolphins!" },
 
-            { id: 324, storyId: 27, category: "context", type: "multiple", question: "What does 'Scientists have found' tell us about the information?", options: ["It's a guess", "It's from a movie", "It's based on research and evidence", "It's a made-up story"], correct: 2, hint: "Scientists study and discover things through research.", explanation: "When scientists find something, it means it's based on careful study and evidence!" },
 
-            { id: 325, storyId: 28, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Deserts are diverse environments where plants, animals, and people have adapted to survive", "Deserts are empty wastelands", "Nobody lives in deserts", "Deserts only exist in Africa"], correct: 0, hint: "Think about all the different information in the text.", explanation: "The text shows that deserts are diverse places with many living things that have adapted!" },
 
-            { id: 326, storyId: 28, category: "story", type: "multiple", question: "What text feature would best help readers understand this text?", options: ["A recipe", "A poem", "A timeline", "A map showing desert locations"], correct: 3, hint: "The text mentions deserts in different places like Africa and Antarctica.", explanation: "A map would help readers see where different deserts are located around the world!" },
 
-            { id: 327, storyId: 28, category: "vocab", type: "multiple", question: "What does 'precipitation' mean in this context?", options: ["Hot weather", "Rain, snow, or other water falling from the sky", "Sandy ground", "Strong wind"], correct: 1, hint: "Deserts get less than 25 centimeters of this per year.", explanation: "Precipitation is any form of water that falls from clouds, like rain or snow!" },
 
-            { id: 328, storyId: 28, category: "phonics", type: "multiple", question: "Which word has a silent letter?", options: ["shelter", "desert", "camel", "learned"], correct: 0, hint: "Say each word slowly and listen for a letter you don't hear.", explanation: "Shelter has a silent 'l' - you say 'shel-ter' not 'shel-l-ter'!" },
 
-            { id: 329, storyId: 28, category: "inference", type: "multiple", question: "Why do fennec foxes have big ears?", options: ["To fly", "To help them stay cool", "To hear prey better", "To look tough"], correct: 1, hint: "The text mentions this as a way to survive the heat.", explanation: "Big ears help fennec foxes release heat and stay cool in the hot desert!" },
 
-            { id: 330, storyId: 28, category: "context", type: "multiple", question: "What does 'adapted' mean in 'Desert animals have special ways to survive'?", options: ["Moved away", "Changed to fit their environment", "Grew larger", "Became extinct"], correct: 1, hint: "Animals developed special features to live in the desert.", explanation: "Adapted means changed or developed features to survive in a particular environment!" },
 
-            { id: 331, storyId: 28, category: "summary", type: "multiple", question: "What is the best summary of this text?", options: ["Deserts are dry places around the world where animals, plants, and humans have developed ways to survive", "Antarctica is cold", "Camels don't need water", "The Sahara is big"], correct: 0, hint: "Include information about what deserts are and who lives there.", explanation: "A good summary covers what deserts are and how living things survive there!" },
 
-            { id: 332, storyId: 28, category: "grammar", type: "multiple", question: "In 'Camels can go for weeks without water,' what is the preposition?", options: ["without", "weeks", "can", "Camels"], correct: 0, hint: "A preposition shows relationship between words.", explanation: "Without is a preposition showing the relationship between camels and water!" },
 
-            { id: 333, storyId: 28, category: "inference", type: "truefalse", question: "True or False: All deserts are hot and sandy.", options: ["True", "False"], correct: 1, hint: "What does the text say about Antarctica?", explanation: "False! Antarctica is a cold desert covered in ice, not sand." },
 
-            { id: 334, storyId: 28, category: "vocab", type: "fillblank", question: "The ______ Desert in Africa is the biggest hot desert.", options: ["Sahara", "Gobi", "Arctic", "Amazon"], correct: 0, hint: "It's almost as large as the United States.", explanation: "The Sahara Desert is the world's largest hot desert!" },
 
-            { id: 335, storyId: 28, category: "theme", type: "multiple", question: "What surprising fact does the author share?", options: ["Camels have humps", "Antarctica is a desert", "Sand is yellow", "People live in deserts"], correct: 1, hint: "What might surprise readers who think all deserts are hot?", explanation: "Many people are surprised to learn that icy Antarctica is technically a desert!" },
 
-            { id: 336, storyId: 28, category: "context", type: "multiple", question: "Why does the author mention that 'millions of people still call the desert home'?", options: ["To show deserts are dangerous", "To say people should move away", "To prove that deserts are livable places", "To describe desert houses"], correct: 2, hint: "What point is the author making about humans and deserts?", explanation: "The author shows that despite challenges, deserts are places where people can and do live!" },
 
             { id: 337, storyId: 29, category: "theme", type: "multiple", question: "What is the central idea of this text?", options: ["Water continuously moves through a four-stage cycle that supports all life", "Water is blue", "Rain falls from clouds", "The Sun is hot"], correct: 0, hint: "Think about the whole process described.", explanation: "The text explains how water cycles through evaporation, condensation, precipitation, and collection!" },
 
@@ -10292,77 +10452,41 @@ var questions = [
 
             { id: 360, storyId: 30, category: "context", type: "multiple", question: "What does 'marine life' mean?", options: ["Life on land", "Life in the sky", "Life in caves", "Life in the ocean"], correct: 3, hint: "Marine relates to the sea.", explanation: "Marine life means all living things in the ocean!" },
 
-            { id: 361, storyId: 31, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Mountains are tall", "The world is big", "Volcanoes are exploding mountains with lava", "Scientists work hard"], correct: 2, hint: "Think about what the text tells us about volcanoes.", explanation: "The text explains that volcanoes are mountains that can explode with lava!" },
 
-            { id: 362, storyId: 31, category: "story", type: "multiple", question: "What type of text is this?", options: ["A recipe", "A fairy tale", "A poem", "An informational text"], correct: 3, hint: "Does this give facts or tell a made-up story?", explanation: "This is an informational text because it teaches facts about volcanoes!" },
 
-            { id: 363, storyId: 31, category: "vocab", type: "multiple", question: "What is 'lava'?", options: ["Hot melted rock", "A type of cloud", "Frozen ice", "Cold water"], correct: 0, hint: "The text says it comes out of volcanoes.", explanation: "Lava is hot melted rock that comes out of volcanoes!" },
 
-            { id: 364, storyId: 31, category: "phonics", type: "multiple", question: "How many syllables are in 'volcano'?", options: ["3", "5", "4", "2"], correct: 0, hint: "Clap it out: vol-ca-no.", explanation: "Volcano has 3 syllables: vol-ca-no!" },
 
-            { id: 365, storyId: 31, category: "inference", type: "truefalse", question: "True or False: All volcanoes are loud and dangerous.", options: ["True", "False"], correct: 1, hint: "What does the text say about some volcanoes?", explanation: "False! The text says some volcanoes are quiet." },
 
-            { id: 366, storyId: 31, category: "context", type: "multiple", question: "What does 'explode' mean in this text?", options: ["Sleep quietly", "Stop working", "Burst open with force", "Move slowly"], correct: 2, hint: "Think about what happens when lava comes out.", explanation: "Explode means to burst open suddenly with force!" },
 
-            { id: 367, storyId: 31, category: "summary", type: "multiple", question: "What is the best summary of this text?", options: ["Mountains are everywhere", "Scientists are smart", "Lava is hot", "Volcanoes are mountains that can explode with lava, and scientists study them"], correct: 3, hint: "Include the main facts about volcanoes.", explanation: "The text tells us what volcanoes are and that scientists study them!" },
 
-            { id: 368, storyId: 31, category: "grammar", type: "multiple", question: "In 'Volcanoes are mountains,' what is the verb?", options: ["are", "Volcanoes", "mountains", "the"], correct: 0, hint: "A verb tells what something is or does.", explanation: "Are is the verb that connects volcanoes to mountains!" },
 
-            { id: 369, storyId: 31, category: "theme", type: "multiple", question: "Why do scientists study volcanoes?", options: ["To keep people safe", "To find gold", "To make loud noises", "To make them explode"], correct: 0, hint: "Look at the last sentence of the text.", explanation: "Scientists study volcanoes to keep people safe!" },
 
-            { id: 370, storyId: 31, category: "vocab", type: "fillblank", question: "Hot melted rock is called ______.", options: ["lava", "water", "sand", "ice"], correct: 0, hint: "It comes out of volcanoes.", explanation: "Lava is the hot melted rock that comes out of volcanoes!" },
 
-            { id: 371, storyId: 31, category: "inference", type: "multiple", question: "Based on the text, why might living near a volcano be dangerous?", options: ["There is no food", "It is too cold", "It is too dark", "The volcano might explode"], correct: 3, hint: "Think about what volcanoes can do.", explanation: "Living near a volcano can be dangerous because it might explode with hot lava!" },
 
-            { id: 372, storyId: 31, category: "context", type: "multiple", question: "What does 'all over the world' mean?", options: ["In the sky", "In many different places on Earth", "Only in one country", "Under the ground"], correct: 1, hint: "Volcanoes can be found in many places.", explanation: "All over the world means in many different places on Earth!" },
 
-            { id: 373, storyId: 32, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["The ocean is big", "Sharks are ocean hunters that are important", "Fish swim fast", "Sharks are mean"], correct: 1, hint: "Think about what the text says about sharks.", explanation: "The text explains that sharks are hunters and are important for the ocean!" },
 
-            { id: 374, storyId: 32, category: "story", type: "multiple", question: "What is the author's purpose?", options: ["To tell a funny story", "To teach facts about sharks", "To sell pet sharks", "To scare readers about sharks"], correct: 1, hint: "The text gives information about sharks.", explanation: "The author's purpose is to teach readers facts about sharks!" },
 
-            { id: 375, storyId: 32, category: "vocab", type: "multiple", question: "What does 'hunters' mean?", options: ["Animals that catch other animals for food", "Animals that sleep a lot", "Animals that hide", "Animals that swim slowly"], correct: 0, hint: "Sharks use their skills to find food.", explanation: "Hunters are animals that catch other animals to eat!" },
 
-            { id: 376, storyId: 32, category: "phonics", type: "multiple", question: "Which word rhymes with 'shark'?", options: ["shop", "ship", "sheep", "dark"], correct: 3, hint: "Look for the same ending sound: /ark/.", explanation: "Shark and dark both end with the /ark/ sound!" },
 
-            { id: 377, storyId: 32, category: "inference", type: "truefalse", question: "True or False: All sharks are dangerous to humans.", options: ["True", "False"], correct: 1, hint: "What does the text say about some sharks?", explanation: "False! The text says not all sharks are dangerous—some only eat tiny fish." },
 
-            { id: 378, storyId: 32, category: "context", type: "multiple", question: "What does 'smell prey from far away' tell us about sharks?", options: ["They have weak noses", "They can't smell anything", "They have a very strong sense of smell", "They don't like the smell"], correct: 2, hint: "Being able to smell from far away means...", explanation: "Sharks have an amazing sense of smell that helps them hunt!" },
 
-            { id: 379, storyId: 32, category: "summary", type: "multiple", question: "What is the best summary?", options: ["Some fish are small", "Sharks have teeth", "Sharks live in the ocean, are good hunters, and are important for the ocean", "The ocean is wet"], correct: 2, hint: "Include the most important facts.", explanation: "The summary should include where sharks live, what they do, and why they matter!" },
 
-            { id: 380, storyId: 32, category: "grammar", type: "multiple", question: "In 'Sharks have sharp teeth,' what is the adjective?", options: ["sharp", "teeth", "have", "Sharks"], correct: 0, hint: "An adjective describes a noun.", explanation: "Sharp is an adjective that describes the teeth!" },
 
-            { id: 381, storyId: 32, category: "theme", type: "multiple", question: "Why are sharks important for the ocean?", options: ["They clean the sand", "They keep the ocean ecosystem balanced", "They make the water cold", "They make waves"], correct: 1, hint: "The text says sharks are important. Think about what hunters do.", explanation: "Sharks help keep the ocean ecosystem healthy and balanced!" },
 
-            { id: 382, storyId: 32, category: "vocab", type: "fillblank", question: "Sharks are very good ______.", options: ["hunters", "swimmers", "sleepers", "players"], correct: 0, hint: "They catch other animals for food.", explanation: "Sharks are excellent hunters!" },
 
-            { id: 383, storyId: 32, category: "inference", type: "multiple", question: "How do sharks find their food?", options: ["By using their strong sense of smell", "By listening to music", "By asking other fish", "By reading signs"], correct: 0, hint: "The text mentions they can smell prey from far away.", explanation: "Sharks use their powerful sense of smell to find prey!" },
 
-            { id: 384, storyId: 32, category: "context", type: "multiple", question: "What are 'tiny fish'?", options: ["Fast fish", "Very big fish", "Very small fish", "Colorful fish"], correct: 2, hint: "Tiny means very small.", explanation: "Tiny fish are very small fish!" },
 
-            { id: 385, storyId: 33, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Robots are machines that can do many helpful jobs", "Doctors are smart", "Factories are big", "Robots are loud"], correct: 0, hint: "Think about all the things robots can do.", explanation: "The text explains how robots are helpful machines that do many jobs!" },
 
-            { id: 386, storyId: 33, category: "story", type: "multiple", question: "How is this text organized?", options: ["By describing a problem", "By listing examples of what robots do", "By comparing two things", "By telling a story with characters"], correct: 1, hint: "The text gives many examples.", explanation: "The text lists different examples of what robots can do!" },
 
-            { id: 387, storyId: 33, category: "vocab", type: "multiple", question: "What does 'surgery' mean?", options: ["A cleaning tool", "A type of robot", "A factory machine", "A medical operation to fix the body"], correct: 3, hint: "Robots help doctors during this.", explanation: "Surgery is a medical operation where doctors fix or repair parts of the body!" },
 
-            { id: 388, storyId: 33, category: "phonics", type: "multiple", question: "Which word has the same beginning sound as 'robot'?", options: ["write", "rabbit", "phone", "whale"], correct: 1, hint: "Listen for the /r/ sound.", explanation: "Robot and rabbit both start with the /r/ sound!" },
 
-            { id: 389, storyId: 33, category: "inference", type: "multiple", question: "Why might robots help in the future?", options: ["Because they will break", "Because scientists are making them smarter", "Because they will take over the world", "Because they will disappear"], correct: 1, hint: "What does the text say scientists are doing?", explanation: "Scientists are building robots that can learn, so they will help us more!" },
 
-            { id: 390, storyId: 33, category: "context", type: "multiple", question: "What does 'in the future' mean?", options: ["In the past", "In the time that is coming", "Right now", "Yesterday"], correct: 1, hint: "It refers to time that hasn't happened yet.", explanation: "In the future means in the time that is coming ahead!" },
 
-            { id: 391, storyId: 33, category: "summary", type: "multiple", question: "What is the best summary of this text?", options: ["Cars are made in factories", "Doctors do surgery", "Robots are machines that work in factories, help doctors, clean houses, and are getting smarter", "Houses need cleaning"], correct: 2, hint: "Include the different things robots do.", explanation: "A good summary mentions the various jobs robots can do!" },
 
-            { id: 392, storyId: 33, category: "grammar", type: "multiple", question: "In 'Scientists are building robots,' what is the subject?", options: ["Scientists", "building", "robots", "are"], correct: 0, hint: "The subject is who does the action.", explanation: "Scientists is the subject—they are the ones building robots!" },
 
-            { id: 393, storyId: 33, category: "theme", type: "truefalse", question: "True or False: Robots can only do one type of job.", options: ["True", "False"], correct: 1, hint: "How many different jobs does the text mention?", explanation: "False! Robots can do many different jobs—factories, surgery, cleaning, and more." },
 
-            { id: 394, storyId: 33, category: "vocab", type: "fillblank", question: "Robots are ______ that can do many jobs.", options: ["machines", "animals", "plants", "rocks"], correct: 0, hint: "Robots are a type of device.", explanation: "Robots are machines!" },
 
-            { id: 395, storyId: 33, category: "inference", type: "multiple", question: "Based on the text, robots are becoming more...", options: ["Advanced and capable", "Smaller only", "Broken", "Simple"], correct: 0, hint: "Scientists are building robots that can walk, talk, and learn.", explanation: "Robots are becoming more advanced—they can now walk, talk, and learn!" },
 
-            { id: 396, storyId: 33, category: "context", type: "multiple", question: "What does 'help doctors during surgery' mean?", options: ["Robots assist doctors in medical operations", "Robots watch doctors", "Robots do all the work alone", "Robots become doctors"], correct: 0, hint: "Help means to assist someone.", explanation: "Robots assist doctors during operations to help them work better!" },
 
             { id: 397, storyId: 34, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Leaves are green", "Eggs are small", "Butterflies go through an amazing change called metamorphosis", "Butterflies are insects"], correct: 2, hint: "Think about what the whole text explains.", explanation: "The text describes how butterflies change through metamorphosis!" },
 
@@ -10580,102 +10704,6 @@ var questions = [
 
             { id: 504, storyId: 42, category: "context", type: "multiple", question: "What does 'round trip' mean?", options: ["Going somewhere and coming back", "A trip by car", "A trip in a circle", "A short trip"], correct: 0, hint: "Arctic terns travel there AND back.", explanation: "A round trip means going to a place and returning!" },
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
-            { id: 1033, storyId: 43, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["Monster trucks are big and fun", "Trucks carry food", "Trucks are slow", "Trucks are loud"], correct: 0, hint: "Think about what the story says about the truck.", explanation: "The story is all about how monster trucks are big and fun!" },
-            { id: 1034, storyId: 43, category: "story", type: "multiple", question: "What can the truck do?", options: ["Swim", "Jump", "Fly", "Hide"], correct: 1, hint: "The story tells us what the truck can do.", explanation: "The story says the truck can jump!" },
-            { id: 1035, storyId: 43, category: "vocab", type: "multiple", question: "What does 'crash' mean?", options: ["A loud bang when things hit", "A soft sound", "A color", "A kind of food"], correct: 0, hint: "Think about the loud sounds the truck makes.", explanation: "Crash means a loud bang when things hit together!" },
-            { id: 1036, storyId: 43, category: "phonics", type: "multiple", question: "What sound does 'truck' start with?", options: ["/tr/", "/ch/", "/th/", "/st/"], correct: 0, hint: "Say 'truck' slowly. What do you hear first?", explanation: "Truck starts with the /tr/ sound!" },
-            { id: 1037, storyId: 43, category: "inference", type: "multiple", question: "Where would you see a monster truck?", options: ["In a kitchen", "In a bedroom", "At a monster truck show", "In a bathtub"], correct: 2, hint: "Where do big trucks jump and crash?", explanation: "You would see monster trucks at a show where they jump and crash!" },
-            { id: 1038, storyId: 43, category: "inference", type: "multiple", question: "Why does the story say 'Crash! Smash!'?", options: ["To show the truck is loud and exciting", "The truck is broken", "The truck is sleeping", "The truck is lost"], correct: 0, hint: "How does the truck sound?", explanation: "Crash and Smash show us the truck is loud and exciting!" },
-            { id: 1039, storyId: 43, category: "context", type: "multiple", question: "In the story, 'It has big wheels.' What does 'it' mean?", options: ["A car", "A bike", "The truck", "A ball"], correct: 2, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the truck because that is what the story is about!" },
-            { id: 1040, storyId: 43, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["A big monster truck has big wheels, can jump, and is loud and fun", "A truck goes to the store", "A small truck is quiet", "A truck gets lost"], correct: 0, hint: "Think about what happens in the whole story.", explanation: "The story tells us the truck is big, can jump, and is loud and fun!" },
-            { id: 1041, storyId: 43, category: "grammar", type: "multiple", question: "Which word in the story tells about size?", options: ["Loud", "Jump", "Look", "Big"], correct: 3, hint: "Which word tells us how large something is?", explanation: "Big is the word that tells us about size!" },
-            { id: 1042, storyId: 43, category: "vocab", type: "multiple", question: "What does 'smash' mean?", options: ["To sing", "To sleep", "To eat", "To hit something very hard"], correct: 3, hint: "It is like crash. Think about loud hitting sounds.", explanation: "Smash means to hit something very hard!" },
-            { id: 1043, storyId: 43, category: "story", type: "multiple", question: "How does the person in the story feel about monster trucks?", options: ["Sad", "Scared", "Angry", "They like them"], correct: 3, hint: "What does the last sentence say?", explanation: "The story says 'I like monster trucks!' so they love them!" },
-            { id: 1044, storyId: 43, category: "theme", type: "multiple", question: "What makes monster trucks special in this story?", options: ["They are small", "They are big, loud, and can jump", "They are quiet", "They are slow"], correct: 1, hint: "Think about all the cool things the story says about the truck.", explanation: "Monster trucks are special because they are big, loud, and can jump!" },
-            { id: 1045, storyId: 44, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A slow boat", "A big bus", "A fast rocket that goes to space", "A little airplane"], correct: 2, hint: "Think about what the story tells us about the rocket.", explanation: "The story is all about a fast rocket that goes up to space!" },
-            { id: 1046, storyId: 44, category: "story", type: "multiple", question: "Where does the rocket go?", options: ["To the park", "Under the water", "To space", "To school"], correct: 2, hint: "The story says the rocket goes somewhere very high.", explanation: "The rocket goes to space!" },
-            { id: 1047, storyId: 44, category: "vocab", type: "multiple", question: "What does 'fast' mean?", options: ["Very slow", "Very quick", "Very big", "Very small"], correct: 1, hint: "The rocket moves in a hurry. What word means that?", explanation: "Fast means very quick, like the rocket zooming up!" },
-            { id: 1048, storyId: 44, category: "phonics", type: "multiple", question: "What word rhymes with 'space'?", options: ["Spot", "Spin", "Race", "Star"], correct: 2, hint: "Which word ends with the same sound as space?", explanation: "Race rhymes with space because they both end in -ace!" },
-            { id: 1049, storyId: 44, category: "inference", type: "multiple", question: "Why does the story say 'Zoom!'?", options: ["The rocket is quiet", "The rocket moves very fast", "The rocket stops", "The rocket is broken"], correct: 1, hint: "What sound does something fast make?", explanation: "Zoom shows us the rocket is moving very fast!" },
-            { id: 1050, storyId: 44, category: "inference", type: "multiple", question: "How does the person in the story feel about the rocket?", options: ["Sad", "Bored", "They think it is cool", "Angry"], correct: 2, hint: "What does the last sentence say?", explanation: "The story says 'The rocket is cool!' so they think it is awesome!" },
-            { id: 1051, storyId: 44, category: "context", type: "multiple", question: "In the story, 'It goes up, up, up!' What does 'it' mean?", options: ["A ball", "A bird", "A kite", "The rocket"], correct: 3, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the rocket because the story is about the rocket!" },
-            { id: 1052, storyId: 44, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["A fast rocket goes up to space and it is cool", "A rocket breaks down", "A rocket is slow", "A rocket stays on the ground"], correct: 0, hint: "Think about what happens in the whole story.", explanation: "The story tells us a fast rocket zooms up to space and is cool!" },
-            { id: 1053, storyId: 44, category: "grammar", type: "multiple", question: "In 'It goes up, up, up!' why is 'up' said three times?", options: ["It is a mistake", "The rocket is going down", "To show the rocket keeps going higher and higher", "The rocket stopped"], correct: 2, hint: "Think about what repeating a word does.", explanation: "Saying 'up' three times shows the rocket keeps going higher and higher!" },
-            { id: 1054, storyId: 44, category: "vocab", type: "multiple", question: "What is 'space'?", options: ["A room in a house", "The area far above Earth where stars are", "A kind of food", "A park"], correct: 1, hint: "The rocket goes way up high to get there.", explanation: "Space is the area far above Earth where stars and planets are!" },
-            { id: 1055, storyId: 44, category: "story", type: "multiple", question: "What is the rocket like?", options: ["It is fast", "It is slow", "It is tiny", "It is broken"], correct: 0, hint: "The story uses a word to describe how the rocket moves.", explanation: "The story says the rocket is fast!" },
-            { id: 1056, storyId: 44, category: "theme", type: "multiple", question: "What makes the rocket exciting in this story?", options: ["It is fast and goes all the way to space", "It is slow", "It stays still", "It is old"], correct: 0, hint: "Think about what the rocket does that is so cool.", explanation: "The rocket is exciting because it is fast and goes all the way to space!" },
-            { id: 1057, storyId: 45, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A sad toy", "A broken toy", "A green ball", "A fun red robot"], correct: 3, hint: "Think about what the story tells us about the robot.", explanation: "The story is all about a fun red robot!" },
-            { id: 1058, storyId: 45, category: "story", type: "multiple", question: "What can the robot do?", options: ["Fly and swim", "Jump and run", "Walk and talk", "Cook and clean"], correct: 2, hint: "The story tells us two things the robot can do.", explanation: "The robot can walk and talk!" },
-            { id: 1059, storyId: 45, category: "vocab", type: "multiple", question: "What is a 'robot'?", options: ["A kind of animal", "A kind of food", "A machine that can move and do things", "A kind of plant"], correct: 2, hint: "Think about what the robot does in the story.", explanation: "A robot is a machine that can move and do things!" },
-            { id: 1060, storyId: 45, category: "phonics", type: "multiple", question: "What sound does 'red' start with?", options: ["/r/", "/b/", "/d/", "/t/"], correct: 0, hint: "Say 'red' slowly. What do you hear first?", explanation: "Red starts with the /r/ sound!" },
-            { id: 1061, storyId: 45, category: "inference", type: "multiple", question: "Why does the story say 'Beep, beep!'?", options: ["That is the sound the robot makes", "The robot is sad", "The robot is sleeping", "The robot is broken"], correct: 0, hint: "What kind of sounds do robots make?", explanation: "Beep, beep is the sound the robot makes!" },
-            { id: 1062, storyId: 45, category: "inference", type: "multiple", question: "How does the person feel about the robot?", options: ["Scared of it", "They think it is fun", "Mad at it", "Bored with it"], correct: 1, hint: "What does the last sentence say?", explanation: "The story says 'My robot is fun!' so they love playing with it!" },
-            { id: 1063, storyId: 45, category: "context", type: "multiple", question: "In the story, 'It is red.' What does 'it' mean?", options: ["The robot", "A ball", "A car", "A crayon"], correct: 0, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the robot because the story says 'I have a robot' right before!" },
-            { id: 1064, storyId: 45, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["Someone has a red robot that beeps, walks, talks, and is fun", "A robot is broken and sad", "A robot runs away", "A blue robot flies"], correct: 0, hint: "Think about what happens in the whole story.", explanation: "The story tells us about a red robot that beeps, walks, talks, and is fun!" },
-            { id: 1065, storyId: 45, category: "grammar", type: "multiple", question: "In 'My robot can walk,' what does the word 'can' tell us?", options: ["The robot is big", "The robot is red", "The robot is able to do something", "The robot is old"], correct: 2, hint: "What does 'can' mean before a doing word?", explanation: "The word 'can' means the robot is able to walk!" },
-            { id: 1066, storyId: 45, category: "vocab", type: "multiple", question: "What does 'talk' mean?", options: ["To run fast", "To eat food", "To say words", "To go to sleep"], correct: 2, hint: "What do you do with your mouth when you use words?", explanation: "Talk means to say words, just like the robot can!" },
-            { id: 1067, storyId: 45, category: "story", type: "multiple", question: "What color is the robot?", options: ["Blue", "Red", "Green", "Yellow"], correct: 1, hint: "The story tells us the color of the robot.", explanation: "The story says the robot is red!" },
-            { id: 1068, storyId: 45, category: "theme", type: "multiple", question: "Why is the robot a good toy?", options: ["It is very big", "It is very small", "It is broken", "It can walk and talk and is fun"], correct: 3, hint: "Think about all the things the robot can do.", explanation: "The robot is a good toy because it can walk, talk, and is fun!" },
-            { id: 1069, storyId: 46, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A slow bike", "A big boat", "A red truck", "A fast, cool car"], correct: 3, hint: "Think about what the story tells us about the car.", explanation: "The story is all about a fast, cool car!" },
-            { id: 1070, storyId: 46, category: "story", type: "multiple", question: "What color is the car?", options: ["Red", "Blue", "Green", "Yellow"], correct: 1, hint: "The story tells us the color of the car.", explanation: "The story says the car is blue!" },
-            { id: 1071, storyId: 46, category: "vocab", type: "multiple", question: "What does 'vroom' mean?", options: ["A quiet sound", "A color", "A kind of food", "The sound a car makes when it goes fast"], correct: 3, hint: "Think about the sound a fast car makes.", explanation: "Vroom is the sound a car makes when it goes fast!" },
-            { id: 1072, storyId: 46, category: "phonics", type: "multiple", question: "What word rhymes with 'car'?", options: ["Cat", "Cup", "Star", "Can"], correct: 2, hint: "Which word ends with the same sound as car?", explanation: "Star rhymes with car because they both end in -ar!" },
-            { id: 1073, storyId: 46, category: "inference", type: "multiple", question: "Why does the story say 'Vroom, vroom!'?", options: ["The car is broken", "The car is sleeping", "The car is quiet", "The car is going fast and making noise"], correct: 3, hint: "What happens when a car goes fast?", explanation: "Vroom, vroom shows us the car is going fast and making noise!" },
-            { id: 1074, storyId: 46, category: "inference", type: "multiple", question: "How does the person in the story feel about cars?", options: ["They think cars are cool", "They are scared of cars", "They do not like cars", "They are sad about cars"], correct: 0, hint: "What does the last sentence say?", explanation: "The story says 'Cars are cool!' so they really like them!" },
-            { id: 1075, storyId: 46, category: "context", type: "multiple", question: "In the story, 'It is fast.' What does 'it' mean?", options: ["A bus", "The car", "A bike", "A train"], correct: 1, hint: "What was the sentence before talking about?", explanation: "The word 'it' means the car because the story says 'I see a car' right before!" },
-            { id: 1076, storyId: 46, category: "summary", type: "multiple", question: "What is the best way to tell about this story?", options: ["A car is broken and old", "A car cannot go", "A car is very slow", "Someone sees a fast blue car that goes vroom and cars are cool"], correct: 3, hint: "Think about what happens in the whole story.", explanation: "The story tells us about a fast blue car that goes vroom and is cool!" },
-            { id: 1077, storyId: 46, category: "grammar", type: "multiple", question: "In 'The car can go,' what does 'can' tell us?", options: ["The car is big", "The car is old", "The car is blue", "The car is able to go"], correct: 3, hint: "What does 'can' mean before a doing word?", explanation: "The word 'can' means the car is able to go!" },
-            { id: 1078, storyId: 46, category: "vocab", type: "multiple", question: "What does 'cool' mean in this story?", options: ["Very cold", "A little warm", "Not nice", "Really great and fun"], correct: 3, hint: "The person thinks cars are awesome. What word means that?", explanation: "Cool means really great and fun in this story!" },
-            { id: 1079, storyId: 46, category: "story", type: "multiple", question: "What is the car like in this story?", options: ["Slow and old", "Fast", "Broken", "Tiny"], correct: 1, hint: "The story uses a word to tell us how the car moves.", explanation: "The story says the car is fast!" },
-            { id: 1080, storyId: 46, category: "theme", type: "multiple", question: "What makes the car exciting in this story?", options: ["It is very old", "It is broken", "It is very slow", "It is fast and goes vroom"], correct: 3, hint: "Think about what the car does that is so cool.", explanation: "The car is exciting because it is fast and goes vroom!" },
-            { id: 1081, storyId: 47, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A boy who likes to sleep", "A boy who tries a skateboard trick", "A boy who plays with a ball", "A boy who goes to school"], correct: 1, hint: "Think about what Jake does at the park.", explanation: "The story is about Jake trying a skateboard trick!" },
-            { id: 1082, storyId: 47, category: "story", type: "multiple", question: "Where does Jake ride his skateboard?", options: ["To school", "To the store", "To the park", "To his house"], correct: 2, hint: "The story says where Jake rides to.", explanation: "Jake rides his skateboard to the park!" },
-            { id: 1083, storyId: 47, category: "vocab", type: "multiple", question: "What does 'trick' mean in this story?", options: ["A joke on someone", "A special move on a skateboard", "A talent show", "A test at school"], correct: 1, hint: "Think about what Jake does on his skateboard.", explanation: "A trick is a special move you do on a skateboard!" },
-            { id: 1084, storyId: 47, category: "phonics", type: "multiple", question: "Which word from the story rhymes with 'bed'?", options: ["red", "park", "trick", "new"], correct: 0, hint: "Say each word out loud. Which one sounds like 'bed' at the end?", explanation: "'Red' rhymes with 'bed' - they both end in the '-ed' sound!" },
-            { id: 1085, storyId: 47, category: "inference", type: "multiple", question: "Why did Jake fall down?", options: ["The trick was hard to do", "He was scared", "His skateboard broke", "It was raining"], correct: 0, hint: "Jake was trying something new. Why might that be hard?", explanation: "Jake fell because the new trick was hard to do!" },
-            { id: 1086, storyId: 47, category: "inference", type: "multiple", question: "How do you know Jake is brave?", options: ["He has a new skateboard", "He has many friends", "He rides very fast", "He tries again after falling"], correct: 3, hint: "What does Jake do after he falls?", explanation: "Jake is brave because he gets up and tries again after falling!" },
-            { id: 1087, storyId: 47, category: "context", type: "multiple", question: "In the story, 'His friends cheer for him.' What does 'cheer' mean?", options: ["To cry", "To run away", "To be quiet", "To shout happily"], correct: 3, hint: "Jake just did his trick. How would his friends feel?", explanation: "'Cheer' means to shout happily because Jake did it!" },
-            { id: 1088, storyId: 47, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Jake has a red skateboard.", "Jake goes to the park every day.", "Jake falls and tries again until he does a skateboard trick.", "Jake and his friends play at school."], correct: 2, hint: "Think about the whole story from start to end.", explanation: "The story is about Jake trying, falling, and finally doing his trick!" },
-            { id: 1089, storyId: 47, category: "grammar", type: "multiple", question: "In 'Jake rides to the park,' which word is the VERB (action word)?", options: ["Jake", "park", "rides", "the"], correct: 2, hint: "A verb is something you DO.", explanation: "'Rides' is the action word - it tells what Jake does!" },
-            { id: 1090, storyId: 47, category: "vocab", type: "multiple", question: "What does 'Ouch' mean in the story?", options: ["A happy word", "A greeting", "A sound you make when something hurts", "A way to say goodbye"], correct: 2, hint: "Jake says 'Ouch' after he falls down.", explanation: "'Ouch' is what you say when something hurts!" },
-            { id: 1091, storyId: 47, category: "story", type: "multiple", question: "What color is Jake's skateboard?", options: ["Black and red", "Blue and green", "Red and white", "Black and blue"], correct: 0, hint: "The story tells you the colors of the skateboard.", explanation: "Jake's skateboard is black and red!" },
-            { id: 1092, storyId: 47, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["Skateboards are dangerous", "Parks are fun to visit", "Friends are not important", "Keep trying even when things are hard"], correct: 3, hint: "What did Jake do after he fell?", explanation: "The story teaches us to keep trying, even when we fall!" },
-            { id: 1093, storyId: 48, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["How to dig holes", "How to build a museum", "Learning about dinosaurs from their bones", "How animals live today"], correct: 2, hint: "Think about what the whole story tells us.", explanation: "The story is about learning about dinosaurs from their bones!" },
-            { id: 1094, storyId: 48, category: "story", type: "multiple", question: "Who finds dinosaur bones in the ground?", options: ["Scientists", "Teachers", "Children", "Farmers"], correct: 0, hint: "The story tells who digs up the bones.", explanation: "Scientists find dinosaur bones in the ground!" },
-            { id: 1095, storyId: 48, category: "vocab", type: "multiple", question: "What does 'scientists' mean in this story?", options: ["People who cook food", "People who study and learn about things", "People who build houses", "People who drive buses"], correct: 1, hint: "Scientists find bones and learn about dinosaurs.", explanation: "Scientists are people who study and learn about things!" },
-            { id: 1096, storyId: 48, category: "phonics", type: "multiple", question: "Which word from the story has the long 'o' sound like in 'bone'?", options: ["bones", "big", "dig", "ground"], correct: 0, hint: "Say each word. Which one has the same sound as 'bone'?", explanation: "'Bones' has the long 'o' sound, just like 'bone'!" },
-            { id: 1097, storyId: 48, category: "inference", type: "multiple", question: "Why do scientists dig up bones carefully?", options: ["Because they are in a hurry", "Because the bones are not important", "Because they want to break them", "Because the bones could break if they are not careful"], correct: 3, hint: "The bones are very old. What might happen if you are rough with them?", explanation: "Scientists are careful because old bones can break easily!" },
-            { id: 1098, storyId: 48, category: "inference", type: "multiple", question: "Why can we see dinosaur bones in museums?", options: ["Because dinosaurs live there", "Because scientists brought the bones there for people to see", "Because museums are underground", "Because bones grow in museums"], correct: 1, hint: "Think about what happens after scientists dig up the bones.", explanation: "Scientists bring the bones to museums so everyone can see them!" },
-            { id: 1099, storyId: 48, category: "context", type: "multiple", question: "In the story, 'They dig them up carefully.' What does 'carefully' mean?", options: ["Very fast", "Being very gentle and slow", "With a big machine", "Without looking"], correct: 1, hint: "The bones are old and could break. How would you handle them?", explanation: "'Carefully' means being gentle and slow so nothing breaks!" },
-            { id: 1100, storyId: 48, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Scientists find dinosaur bones and we can learn about dinosaurs from them.", "Dinosaurs are still alive today.", "Museums are big buildings.", "Scientists like to dig holes."], correct: 0, hint: "Think about the main idea of the whole story.", explanation: "The story tells us that scientists find bones and we learn about dinosaurs!" },
-            { id: 1101, storyId: 48, category: "grammar", type: "multiple", question: "In 'They were very big,' which word is an ADJECTIVE (describing word)?", options: ["big", "They", "were", "very"], correct: 0, hint: "An adjective describes what something is like.", explanation: "'Big' is the adjective - it describes the dinosaurs!" },
-            { id: 1102, storyId: 48, category: "vocab", type: "multiple", question: "What does 'amazing' mean in the story?", options: ["Boring", "Strange", "Small", "Wonderful and interesting"], correct: 3, hint: "The story says 'Dinosaurs are amazing!' How does the author feel about them?", explanation: "'Amazing' means wonderful and interesting!" },
-            { id: 1103, storyId: 48, category: "story", type: "multiple", question: "What happened to the dinosaurs?", options: ["They are still here", "They are gone now", "They moved to the ocean", "They got very small"], correct: 1, hint: "The story says something happened to the dinosaurs long ago.", explanation: "The dinosaurs are gone now - they lived long ago!" },
-            { id: 1104, storyId: 48, category: "theme", type: "multiple", question: "What can we learn from this story?", options: ["Digging is fun", "Museums are boring", "We can learn about the past by studying bones", "Dinosaurs were small"], correct: 2, hint: "What do the bones help us understand?", explanation: "We can learn about the past by studying dinosaur bones!" },
-            { id: 1105, storyId: 49, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["A boy who plays outside", "A boy who does homework", "A boy who watches TV", "A boy who works hard and wins a gaming tournament"], correct: 3, hint: "Think about what Marcus does in the story.", explanation: "The story is about Marcus practicing hard and winning the tournament!" },
-            { id: 1106, storyId: 49, category: "story", type: "multiple", question: "When was the big tournament?", options: ["On Monday", "On Friday", "After school", "On Saturday"], correct: 3, hint: "The story tells you which day the tournament was.", explanation: "The big tournament was on Saturday!" },
-            { id: 1107, storyId: 49, category: "vocab", type: "multiple", question: "What does 'tournament' mean in this story?", options: ["A competition where people play against each other", "A type of video game", "A school test", "A birthday party"], correct: 0, hint: "Many kids came to play and try to win.", explanation: "A tournament is a competition where people play against each other!" },
-            { id: 1108, storyId: 49, category: "phonics", type: "multiple", question: "Which word from the story has the same ending sound as 'best'?", options: ["first", "game", "play", "huge"], correct: 0, hint: "Say each word. Which one ends with the same sound as 'best'?", explanation: "'First' ends with the same '-st' sound as 'best'!" },
-            { id: 1109, storyId: 49, category: "inference", type: "multiple", question: "Why was Marcus nervous on tournament day?", options: ["He forgot his game", "He was tired", "He did not practice", "He really wanted to win and there were many kids competing"], correct: 3, hint: "Marcus practiced every day. How would he feel with twenty kids competing?", explanation: "Marcus was nervous because he wanted to win and there were many competitors!" },
-            { id: 1110, storyId: 49, category: "inference", type: "multiple", question: "Why did Marcus practice every day after school?", options: ["His mom told him to", "He wanted to get better so he could win the tournament", "He had nothing else to do", "His friends made him"], correct: 1, hint: "Think about what Marcus wanted to do on Saturday.", explanation: "Marcus practiced every day because he wanted to win the big tournament!" },
-            { id: 1111, storyId: 49, category: "context", type: "multiple", question: "In the story, 'He learned all the best moves and secret levels.' What does 'secret' mean here?", options: ["Easy to find", "Broken", "Hidden and not easy to find", "Loud"], correct: 2, hint: "If something is secret, not everyone knows about it.", explanation: "'Secret' means hidden and not easy to find - these were special levels!" },
-            { id: 1112, storyId: 49, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Marcus likes to play video games after school.", "Marcus practiced hard, entered a gaming tournament, and won first place.", "Marcus was nervous about a test.", "Marcus got a trophy from his teacher."], correct: 1, hint: "Think about the whole story from beginning to end.", explanation: "The story is about Marcus practicing, competing, and winning first place!" },
-            { id: 1113, storyId: 49, category: "grammar", type: "multiple", question: "In 'Marcus practiced his video game every day,' which word is the VERB (action word)?", options: ["practiced", "Marcus", "game", "every"], correct: 0, hint: "A verb is an action - something you DO.", explanation: "'Practiced' is the verb - it tells what Marcus did!" },
-            { id: 1114, storyId: 49, category: "vocab", type: "multiple", question: "What does 'competing' mean in this story?", options: ["Watching a show", "Trying to win against other people", "Eating lunch", "Going home"], correct: 1, hint: "Twenty kids were competing in the tournament.", explanation: "'Competing' means trying to win against other people!" },
-            { id: 1115, storyId: 49, category: "story", type: "multiple", question: "How many kids were in the tournament?", options: ["Ten", "Twenty", "Thirty", "Five"], correct: 1, hint: "The story tells you the exact number of kids.", explanation: "There were twenty kids competing in the tournament!" },
-            { id: 1116, storyId: 49, category: "theme", type: "multiple", question: "What lesson does this story teach?", options: ["Video games are bad for you", "Winning is the only thing that matters", "You should never be nervous", "Hard work and practice can help you succeed"], correct: 3, hint: "Think about what Marcus did before the tournament and what happened.", explanation: "The story teaches that hard work and practice can help you succeed!" },
-            { id: 1117, storyId: 50, category: "theme", type: "multiple", question: "What is this story mostly about?", options: ["How airplanes fly", "How cars are made", "How bridges are built", "How rockets work and go to space"], correct: 3, hint: "Think about what the whole story explains.", explanation: "The story is about how rockets work and go to space!" },
-            { id: 1118, storyId: 50, category: "story", type: "multiple", question: "What do rockets burn to create hot gases?", options: ["Wood", "Fuel", "Water", "Paper"], correct: 1, hint: "The story tells what rockets burn.", explanation: "Rockets burn fuel very fast to create hot gases!" },
-            { id: 1119, storyId: 50, category: "vocab", type: "multiple", question: "What does 'gravity' mean in this story?", options: ["The force that pulls things down to Earth", "A type of fuel", "A part of a rocket", "A kind of satellite"], correct: 0, hint: "Rockets must go very fast to escape it.", explanation: "Gravity is the force that pulls things down to Earth!" },
-            { id: 1120, storyId: 50, category: "phonics", type: "multiple", question: "Which word from the story rhymes with 'space'?", options: ["smart", "fast", "place", "force"], correct: 2, hint: "Say each word. Which one ends with the same sound as 'space'?", explanation: "'Place' rhymes with 'space' - they both end in the '-ace' sound!" },
-            { id: 1121, storyId: 50, category: "inference", type: "multiple", question: "Why must rockets go very fast?", options: ["To make loud noises", "To escape Earth's gravity pulling them back down", "To look cool", "To save fuel"], correct: 1, hint: "Think about what gravity does and why rockets need speed.", explanation: "Rockets must go fast to escape gravity, which pulls them back to Earth!" },
-            { id: 1122, storyId: 50, category: "inference", type: "multiple", question: "Why does building rockets take many years?", options: ["Because rockets are very complicated machines that need smart engineers", "Because nobody wants to build them", "Because there are not enough parts", "Because rockets are very small"], correct: 0, hint: "Think about how powerful and complicated rockets are.", explanation: "Rockets are very complicated, so it takes many years of work by smart engineers!" },
-            { id: 1123, storyId: 50, category: "context", type: "multiple", question: "In the story, 'These gases shoot out the bottom with great force.' What does 'force' mean?", options: ["A quiet sound", "A small push", "A bright color", "A strong push or power"], correct: 3, hint: "The gases push the rocket up. How strong must that push be?", explanation: "'Force' means a strong push or power - it pushes the rocket up!" },
-            { id: 1124, storyId: 50, category: "summary", type: "multiple", question: "Which sentence best tells what the story is about?", options: ["Rockets are painted red.", "Astronauts like to eat in space.", "Engineers go to school for a long time.", "Rockets burn fuel to create force that pushes them into space."], correct: 3, hint: "Think about the main idea of the whole story.", explanation: "The story explains how rockets burn fuel to create force and go to space!" },
-            { id: 1125, storyId: 50, category: "grammar", type: "multiple", question: "In 'Rockets are powerful machines,' which word is an ADJECTIVE (describing word)?", options: ["Rockets", "are", "powerful", "machines"], correct: 2, hint: "An adjective describes what something is like.", explanation: "'Powerful' is the adjective - it describes the machines!" },
-            { id: 1126, storyId: 50, category: "vocab", type: "multiple", question: "What does 'satellites' mean in this story?", options: ["A type of fuel", "A kind of airplane", "Objects sent into space that go around Earth", "Big trucks"], correct: 2, hint: "Scientists use rockets to launch them into space.", explanation: "Satellites are objects sent into space that go around Earth!" },
-            { id: 1127, storyId: 50, category: "story", type: "multiple", question: "How fast must rockets travel to escape Earth's gravity?", options: ["Over 25,000 miles per hour", "Over 100 miles per hour", "Over 1,000 miles per hour", "Over 500 miles per hour"], correct: 0, hint: "The story gives an exact speed.", explanation: "Rockets must travel at over 25,000 miles per hour!" },
-            { id: 1128, storyId: 50, category: "theme", type: "multiple", question: "What can we learn from this story?", options: ["Rockets use science and engineering to travel to space", "Space is very cold", "Astronauts wear helmets", "Fuel is expensive"], correct: 0, hint: "Think about what the story teaches us about rockets.", explanation: "We learn that rockets use science and engineering to travel to space!" },
             // Story 51: The Championship Game (Level D, fiction)
             { id: 1129, storyId: 51, category: "theme", type: "multiple", question: "What is the main lesson of this story?", options: ["Soccer is too hard for kids", "Hard work and teamwork can make dreams come true", "Winning is the only thing that matters", "You should never feel tired"], correct: 1, hint: "What did Ahmad learn at the end?", explanation: "Ahmad learned that hard work, teamwork, and never giving up can make dreams come true!", wrongFeedback: ["Ahmad loved playing soccer.", "", "The story also talks about teamwork.", "Everyone gets tired sometimes."] },
             { id: 1130, storyId: 51, category: "theme", type: "multiple", question: "What did Ahmad's coach teach him?", options: ["To always score goals", "To run faster than everyone", "That champions are made in the last five minutes", "To never pass the ball"], correct: 2, hint: "Think about what the coach said about champions.", explanation: "The coach taught that champions are made in the last five minutes of a game!", wrongFeedback: ["The coach's lesson was about not giving up.", "The coach talked about being a champion.", "", "Hassan passed the ball to Ahmad."] },
@@ -10731,60 +10759,12 @@ var questions = [
         
             // ========== QUESTIONS FOR NEW STORIES 99-113 ==========
             // Story 99: Soccer Ball (aa) - 12 questions
-            { id: 1177, storyId: 99, category: "theme", type: "multiple", question: "What is this text mostly about?", options: ["How to cook food", "A soccer ball and playing soccer", "Going to school", "A pet dog"], correct: 1, hint: "Look at what the text describes.", explanation: "The text is all about a soccer ball and how fun soccer is!", wrongFeedback: ["The text never mentions cooking.", "", "School is not mentioned.", "There is no dog in this text."] },
-            { id: 1178, storyId: 99, category: "story", type: "multiple", question: "What color is the soccer ball?", options: ["Red and blue", "Green and yellow", "Black and white", "Orange and purple"], correct: 2, hint: "Read the second sentence.", explanation: "The text says 'It is black and white.'", wrongFeedback: ["Read the color words in the text.", "The text tells us different colors.", "", "Look for the color words."] },
-            { id: 1179, storyId: 99, category: "vocab", type: "multiple", question: "What does 'score' mean in 'Score a goal'?", options: ["To miss", "To get a point", "To run away", "To fall down"], correct: 1, hint: "What happens when the ball goes in the net?", explanation: "Score means to get a point!", wrongFeedback: ["Missing is the opposite.", "", "Running away is not what score means.", "Scoring is a good thing."] },
-            { id: 1180, storyId: 99, category: "phonics", type: "multiple", question: "Which word rhymes with 'ball'?", options: ["Bell", "Tall", "Bat", "Big"], correct: 1, hint: "Which sounds the same at the end?", explanation: "'Ball' and 'tall' both end with '-all'!", wrongFeedback: ["Bell ends with '-ell'.", "", "Bat ends with '-at'.", "Big ends with '-ig'."] },
-            { id: 1181, storyId: 99, category: "inference", type: "truefalse", question: "The person telling this story likes soccer.", correct: true, hint: "What does the last sentence say?", explanation: "The text ends with 'Soccer is fun!'" },
-            { id: 1182, storyId: 99, category: "context", type: "multiple", question: "What does 'round' mean?", options: ["Square shaped", "Like a circle", "Very big", "Moving fast"], correct: 1, hint: "Think about the shape of a ball.", explanation: "Round means shaped like a circle!", wrongFeedback: ["Square is different from round.", "", "Round is about shape, not size.", "Round is about shape, not speed."] },
-            { id: 1183, storyId: 99, category: "summary", type: "multiple", question: "Which sentence tells what the text is about?", options: ["Balls are heavy.", "Soccer balls are round and soccer is fun.", "Running is hard.", "White things are nice."], correct: 1, hint: "Which mentions both the ball AND soccer?", explanation: "This includes the main ideas!", wrongFeedback: ["The text doesn't say balls are heavy.", "", "The text is about soccer, not just running.", "This misses the point about soccer."] },
-            { id: 1184, storyId: 99, category: "grammar", type: "multiple", question: "Which sentence uses 'is' correctly?", options: ["It is round.", "It are round.", "It am round.", "It be round."], correct: 0, hint: "'Is' goes with 'it', 'he', 'she'.", explanation: "'It is' is correct grammar.", wrongFeedback: ["", "'Are' goes with 'they' or 'we'.", "'Am' only goes with 'I'.", "'Be' is not used this way."] },
-            { id: 1185, storyId: 99, category: "phonics", type: "multiple", question: "What sound does 'kick' start with?", options: ["/s/ sound", "/k/ sound", "/m/ sound", "/b/ sound"], correct: 1, hint: "Say 'kick' slowly.", explanation: "'Kick' starts with /k/!", wrongFeedback: ["/s/ is in 'sun'.", "", "/m/ is in 'mom'.", "/b/ is in 'ball'."] },
-            { id: 1186, storyId: 99, category: "inference", type: "multiple", question: "Where do people probably play soccer?", options: ["In bed", "In the kitchen", "Outside on a field", "In the bathtub"], correct: 2, hint: "Where can you kick and run?", explanation: "Soccer is played outside on fields!", wrongFeedback: ["You can't kick a ball in bed.", "Kitchens are too small.", "", "You can't play sports in a bathtub!"] },
-            { id: 1187, storyId: 99, category: "vocab", type: "multiple", question: "What is a 'goal' in soccer?", options: ["A type of food", "Where you kick the ball to score", "A player's name", "The color of the ball"], correct: 1, hint: "Where does the ball go to score?", explanation: "A goal is the net where you kick to score!", wrongFeedback: ["A goal is not food.", "", "Goal is not a name.", "Goal is not a color."] },
-            { id: 1188, storyId: 99, category: "grammar", type: "multiple", question: "What kind of sentence is 'Kick the ball'?", options: ["A question", "A command", "A statement", "A greeting"], correct: 1, hint: "Is it asking or giving an instruction?", explanation: "It's a command - it tells you what to do!", wrongFeedback: ["Questions end with '?'.", "", "Statements tell information.", "Greetings say hello."] },
 
             // Story 100: Your Amazing Brain (A) - 12 questions  
-            { id: 1189, storyId: 100, category: "theme", type: "multiple", question: "What is the main idea of this text?", options: ["Heads are big", "Your brain controls everything you do", "Sleeping is fun", "Walking is easy"], correct: 1, hint: "What does the text say your brain does?", explanation: "Your brain controls thinking, feeling, and all body actions!", wrongFeedback: ["The text is about the brain, not head size.", "", "Sleep is mentioned but isn't the main idea.", "Walking is just one thing the brain helps with."] },
-            { id: 1190, storyId: 100, category: "story", type: "multiple", question: "Where is your brain?", options: ["In your foot", "In your hand", "In your head", "In your stomach"], correct: 2, hint: "Read the first sentence.", explanation: "The text says 'Your brain is in your head.'", wrongFeedback: ["Your brain is not in your foot.", "Your brain is not in your hand.", "", "Your brain is not in your stomach."] },
-            { id: 1191, storyId: 100, category: "vocab", type: "multiple", question: "What does 'amazing' mean?", options: ["Boring", "Wonderful and surprising", "Tiny", "Slow"], correct: 1, hint: "Is the title saying good or bad things?", explanation: "Amazing means wonderful and surprising!", wrongFeedback: ["Amazing is the opposite of boring.", "", "Amazing doesn't mean tiny.", "Amazing doesn't refer to speed."] },
-            { id: 1192, storyId: 100, category: "phonics", type: "multiple", question: "Which word has the long 'e' sound?", options: ["Help", "Sleep", "Think", "Walk"], correct: 1, hint: "Which has the 'ee' sound?", explanation: "'Sleep' has the long 'e' sound!", wrongFeedback: ["Help has a short 'e'.", "", "Think has a short 'i'.", "Walk has an 'aw' sound."] },
-            { id: 1193, storyId: 100, category: "inference", type: "multiple", question: "Why should you take care of your brain?", options: ["Brains are ugly", "You need it for everything", "Brains are expensive", "Teachers said so"], correct: 1, hint: "What does the brain do for you?", explanation: "You need your brain for thinking, feeling, and controlling your body!", wrongFeedback: ["The text doesn't say brains are ugly.", "", "Brains aren't something you buy.", "The text gives real reasons."] },
-            { id: 1194, storyId: 100, category: "context", type: "multiple", question: "What does 'tells your body what to do' mean?", options: ["Your body talks", "Your brain controls your body", "Your body is the boss", "Your brain is scared"], correct: 1, hint: "Who gives the instructions?", explanation: "Your brain sends signals that control your body!", wrongFeedback: ["Bodies don't talk to brains.", "", "The brain is the boss.", "The text doesn't mention being scared."] },
-            { id: 1195, storyId: 100, category: "summary", type: "multiple", question: "What is the best summary?", options: ["Heads are on bodies.", "Your brain controls everything you do.", "Walking is fun.", "You should sleep more."], correct: 1, hint: "Which captures the main message?", explanation: "This explains WHY the brain is amazing!", wrongFeedback: ["This misses the point.", "", "This is just an example.", "Sleep isn't the main point."] },
-            { id: 1196, storyId: 100, category: "grammar", type: "multiple", question: "What is the verb in 'Your brain helps you think'?", options: ["Your", "Brain", "Helps", "Think"], correct: 2, hint: "A verb shows action.", explanation: "'Helps' is the action word!", wrongFeedback: ["'Your' is possessive.", "'Brain' is a noun.", "", "'Think' is also a verb, but 'helps' is main."] },
-            { id: 1197, storyId: 100, category: "inference", type: "truefalse", question: "Your brain works even when you sleep.", correct: true, hint: "Look at the list of things your brain helps you do.", explanation: "The text lists 'sleep' as something your brain controls!" },
-            { id: 1198, storyId: 100, category: "phonics", type: "multiple", question: "How many syllables in 'amazing'?", options: ["One", "Two", "Three", "Four"], correct: 2, hint: "Clap: a-ma-zing", explanation: "A-ma-zing has three syllables!", wrongFeedback: ["More than one part.", "Count again.", "", "Too many."] },
-            { id: 1199, storyId: 100, category: "vocab", type: "multiple", question: "What does 'Take care of' mean?", options: ["Throw away", "Protect and keep healthy", "Give away", "Paint"], correct: 1, hint: "Do you help it or hurt it?", explanation: "Take care of means to protect!", wrongFeedback: ["Taking care is the opposite.", "", "Taking care means keeping.", "This isn't about art."] },
-            { id: 1200, storyId: 100, category: "grammar", type: "multiple", question: "Which word is a noun?", options: ["Think", "Feel", "Brain", "Help"], correct: 2, hint: "A noun is a thing you can point to.", explanation: "'Brain' is a noun - a thing!", wrongFeedback: ["Think is a verb.", "Feel is a verb.", "", "Help is a verb."] },
 
             // Story 101: How to Make a Paper Airplane (C) - 12 questions
-            { id: 1201, storyId: 101, category: "theme", type: "multiple", question: "What is the purpose of this text?", options: ["To tell a funny story", "To teach how to make something", "To describe a character", "To explain a problem"], correct: 1, hint: "Does this text give step-by-step directions?", explanation: "This is a how-to text that teaches you to make a paper airplane!", wrongFeedback: ["This isn't a story with characters.", "", "There are no characters.", "It doesn't present a problem."] },
-            { id: 1202, storyId: 101, category: "story", type: "sequence", question: "Put these steps in order:", items: ["Throw your plane", "Get a piece of paper", "Fold the top corners down"], correct: [1, 2, 0], hint: "What do you need before you can fold?", explanation: "First get paper, then fold it, then throw it!" },
-            { id: 1203, storyId: 101, category: "vocab", type: "multiple", question: "What does 'fold' mean?", options: ["To cut with scissors", "To bend paper over itself", "To draw a picture", "To tear into pieces"], correct: 1, hint: "When you fold, you don't cut.", explanation: "Folding means bending paper so one part covers another!", wrongFeedback: ["Folding doesn't involve cutting.", "", "Folding isn't drawing.", "Folding keeps paper whole."] },
-            { id: 1204, storyId: 101, category: "phonics", type: "multiple", question: "Which word has the long 'a' sound like 'plane'?", options: ["Paper", "Make", "Fun", "Top"], correct: 1, hint: "The long 'a' says its name: 'ay'", explanation: "'Make' has the long 'a' sound!", wrongFeedback: ["Paper has long 'a' too, but 'make' is clearer.", "", "Fun has short 'u'.", "Top has short 'o'."] },
-            { id: 1205, storyId: 101, category: "inference", type: "multiple", question: "Why does the text ask 'Which plane flies farthest?'", options: ["All planes fly the same", "To suggest making more planes to compare", "The writer doesn't know", "To confuse the reader"], correct: 1, hint: "What might be fun after making one airplane?", explanation: "It suggests making multiple planes to see which design works best!", wrongFeedback: ["Different folds make planes fly differently.", "", "The writer is prompting exploration.", "It's meant to inspire, not confuse."] },
-            { id: 1206, storyId: 101, category: "context", type: "multiple", question: "What does 'finally' tell us?", options: ["This is the first step", "This is a middle step", "This is the last step", "This step is optional"], correct: 2, hint: "Finally means at the end.", explanation: "'Finally' signals this is the last step!", wrongFeedback: ["Finally comes at the end.", "Finally means the end.", "", "Finally means you must do it."] },
-            { id: 1207, storyId: 101, category: "summary", type: "multiple", question: "Which sentence best summarizes this text?", options: ["Paper is white.", "You need paper to make things.", "Follow these steps to make and fly a paper airplane.", "Throwing things is fun."], correct: 2, hint: "A summary tells WHAT you're making and that there are steps.", explanation: "This captures that it's instructions for making a paper airplane!", wrongFeedback: ["Doesn't capture the main idea.", "Too vague.", "", "Misses the point."] },
-            { id: 1208, storyId: 101, category: "grammar", type: "multiple", question: "What type of words are 'First', 'Then', 'Now', 'Finally'?", options: ["Action words", "Describing words", "Sequence words", "Naming words"], correct: 2, hint: "These words show ORDER.", explanation: "These are sequence words that show order!", wrongFeedback: ["These don't show actions.", "These don't describe things.", "", "These don't name things."] },
-            { id: 1209, storyId: 101, category: "phonics", type: "multiple", question: "Which word starts with a consonant blend?", options: ["Paper", "Plane", "Open", "Easy"], correct: 1, hint: "A blend is two consonants together like 'pl'.", explanation: "'Plane' starts with 'pl' - a consonant blend!", wrongFeedback: ["Paper starts with just 'p'.", "", "Open starts with a vowel.", "Easy starts with a vowel."] },
-            { id: 1210, storyId: 101, category: "inference", type: "truefalse", question: "You need scissors to make this paper airplane.", correct: false, hint: "Is cutting mentioned?", explanation: "The text only mentions folding - no cutting needed!" },
-            { id: 1211, storyId: 101, category: "vocab", type: "multiple", question: "What are 'wings' on a paper airplane?", options: ["The front point", "The flat parts that help it fly", "The middle fold", "The bottom"], correct: 1, hint: "What part sticks out on your paper plane?", explanation: "Wings are the flat parts that catch air!", wrongFeedback: ["The point is the nose.", "", "The middle fold is the body.", "The bottom isn't specifically wings."] },
-            { id: 1212, storyId: 101, category: "grammar", type: "multiple", question: "In 'Fold it in half,' what does 'it' refer to?", options: ["The table", "The paper", "Your hands", "The window"], correct: 1, hint: "What are you folding?", explanation: "'It' refers to the paper!", wrongFeedback: ["You wouldn't fold a table.", "", "You don't fold your hands in half.", "You don't fold windows."] },
 
             // Story 102: Why We Sleep (C) - 12 questions
-            { id: 1213, storyId: 102, category: "theme", type: "multiple", question: "What is the main message?", options: ["Sleep is boring", "Sleep is important for your body and brain", "Kids should stay up late", "Dreams are strange"], correct: 1, hint: "Does the text say good or bad things about sleep?", explanation: "The text explains why sleep is important!", wrongFeedback: ["The text says sleep is important.", "", "The text says go to bed on time.", "Dreams aren't mentioned."] },
-            { id: 1214, storyId: 102, category: "story", type: "multiple", question: "How many hours of sleep do kids need?", options: ["About five", "About ten", "About twenty", "About two"], correct: 1, hint: "Look for the number.", explanation: "Kids need about ten hours!", wrongFeedback: ["Five is not enough.", "", "Twenty is almost a whole day!", "Two is way too little."] },
-            { id: 1215, storyId: 102, category: "vocab", type: "multiple", question: "What does 'grumpy' mean?", options: ["Happy", "In a bad mood", "Very hungry", "Extremely tired"], correct: 1, hint: "How do you feel without enough sleep?", explanation: "Grumpy means being in a bad mood!", wrongFeedback: ["Grumpy is the opposite.", "", "Grumpy is about mood, not hunger.", "Tired is different from grumpy."] },
-            { id: 1216, storyId: 102, category: "phonics", type: "multiple", question: "Which word has the same vowel sound as 'sleep'?", options: ["Step", "Need", "Bed", "Rest"], correct: 1, hint: "Listen for the long 'e' sound.", explanation: "'Need' has the same long 'e' sound!", wrongFeedback: ["Step has short 'e'.", "", "Bed has short 'e'.", "Rest has short 'e'."] },
-            { id: 1217, storyId: 102, category: "inference", type: "multiple", question: "What might happen if you don't sleep before a test?", options: ["You would do great", "Hard to focus and remember", "Nothing would change", "Very happy"], correct: 1, hint: "What does the text say about attention?", explanation: "Without sleep, it's hard to pay attention!", wrongFeedback: ["Lack of sleep hurts performance.", "", "Sleep affects how you think.", "Lack of sleep makes you grumpy."] },
-            { id: 1218, storyId: 102, category: "context", type: "multiple", question: "What does 'sorts through' mean?", options: ["Throws away memories", "Organizes information", "Forgets everything", "Learns new things"], correct: 1, hint: "Sorting means putting things in order.", explanation: "Your brain organizes information while you sleep!", wrongFeedback: ["Your brain keeps important memories.", "", "Your brain remembers.", "This happens while awake."] },
-            { id: 1219, storyId: 102, category: "summary", type: "multiple", question: "Which is the best summary?", options: ["People sleep in beds.", "Sleep helps your brain and body stay healthy.", "Kids go to school.", "Being tired is normal."], correct: 1, hint: "Which explains WHY sleep matters?", explanation: "This captures that sleep helps both brain and body!", wrongFeedback: ["Doesn't explain why sleep matters.", "", "This isn't what the text is about.", "Misses why sleep is important."] },
-            { id: 1220, storyId: 102, category: "grammar", type: "multiple", question: "What is the correct contraction for 'it is'?", options: ["Its", "It's", "Its'", "Itss"], correct: 1, hint: "A contraction uses an apostrophe.", explanation: "'It's' is the contraction of 'it is'!", wrongFeedback: ["'Its' shows ownership.", "", "'Its'' is not a real word.", "'Itss' is not correct."] },
-            { id: 1221, storyId: 102, category: "inference", type: "truefalse", question: "Getting sick more easily is connected to not sleeping enough.", correct: true, hint: "What happens 'without enough sleep'?", explanation: "The text says you might 'get sick more easily'!" },
-            { id: 1222, storyId: 102, category: "phonics", type: "multiple", question: "Which word has three syllables?", options: ["Sleep", "Important", "Brain", "Night"], correct: 1, hint: "Clap each word.", explanation: "Im-por-tant has three syllables!", wrongFeedback: ["Sleep has one.", "", "Brain has one.", "Night has one."] },
-            { id: 1223, storyId: 102, category: "vocab", type: "multiple", question: "What does 'heals' mean?", options: ["Gets sick", "Repairs itself", "Stays the same", "Gets hurt"], correct: 1, hint: "Healing happens after you get hurt.", explanation: "Heals means your body repairs damage!", wrongFeedback: ["Healing is opposite of getting sick.", "", "Healing means changing for better.", "Healing is opposite of getting hurt."] },
-            { id: 1224, storyId: 102, category: "grammar", type: "multiple", question: "In 'Kids need about ten hours,' what is the subject?", options: ["Need", "About", "Ten hours", "Kids"], correct: 3, hint: "The subject is WHO the sentence is about.", explanation: "'Kids' is the subject!", wrongFeedback: ["Need is the verb.", "About is a preposition.", "Ten hours is what they need.", ""] },
 
             // Story 103: The History of Video Games (F) - 12 questions
             { id: 1225, storyId: 103, category: "theme", type: "multiple", question: "What is the main idea?", options: ["Video games are bad", "Video games have changed over time", "Pong is the best game", "Only kids play games"], correct: 1, hint: "The title mentions 'history'.", explanation: "The text traces how video games evolved!", wrongFeedback: ["The text doesn't say games are bad.", "", "Pong is just an example.", "The text mentions people playing as jobs."] },
@@ -10941,135 +10921,15 @@ var questions = [
             { id: 1356, storyId: 113, category: "grammar", type: "multiple", question: "In 'Gaming can teach valuable skills,' what is 'valuable'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 2, hint: "What does 'valuable' describe?", explanation: "'Valuable' describes what kind of skills!", wrongFeedback: ["Valuable describes something.", "Doesn't show action.", "", "Doesn't end in '-ly'."] },
 // NEW QUESTIONS FOR STORIES 55-98
 // Story 55 - Police Car (aa) - nonfiction
-            { id: 2001, storyId: 55, category: "theme", type: "multiple", question: "What is this story mainly about?", options: ["A fire truck", "A police car", "A school bus", "An airplane"], correct: 1, hint: "Look at the title of the story.", explanation: "The story is all about police cars!", wrongFeedback: ["The story is about police cars.", "", "Not about buses.", "No airplanes here."] },
-            { id: 2002, storyId: 55, category: "story", type: "multiple", question: "What sound does the police car make?", options: ["Beep, beep", "Woo, woo", "Honk, honk", "Zoom, zoom"], correct: 1, hint: "Read the second sentence.", explanation: "The story says 'Woo, woo!'", wrongFeedback: ["Read the story again.", "", "That's not the sound.", "Try again."] },
-            { id: 2003, storyId: 55, category: "vocab", type: "multiple", question: "What does 'fast' mean?", options: ["Slow", "Quick", "Big", "Small"], correct: 1, hint: "Think about how quickly it moves.", explanation: "Fast means quick or speedy!", wrongFeedback: ["That's the opposite.", "", "Size is different.", "Not about size."] },
-            { id: 2004, storyId: 55, category: "inference", type: "multiple", question: "Why do police cars have lights?", options: ["To look pretty", "So people see them coming", "To save electricity", "Just for fun"], correct: 1, hint: "Think about safety.", explanation: "Lights help people see the police car!", wrongFeedback: ["Not just for looks.", "", "Not about saving power.", "They have a purpose."] },
-            { id: 2005, storyId: 55, category: "summary", type: "multiple", question: "What is true about police cars?", options: ["They are slow", "They help people", "They are quiet", "They fly"], correct: 1, hint: "What do police cars do?", explanation: "The story says police cars help people!", wrongFeedback: ["They are fast.", "", "They make sound.", "Cars don't fly."] },
-            { id: 2006, storyId: 55, category: "grammar", type: "multiple", question: "In 'The car is fast,' what is 'fast'?", options: ["A noun", "A verb", "An adjective", "A pronoun"], correct: 2, hint: "It describes the car.", explanation: "Fast describes what kind of car - an adjective!", wrongFeedback: ["Not a person or thing.", "Not an action.", "", "Not replacing a noun."] },
-            { id: 2007, storyId: 55, category: "phonics", type: "multiple", question: "Which word rhymes with 'car'?", options: ["Cat", "Star", "Can", "Cup"], correct: 1, hint: "Listen to the ending sound.", explanation: "Car and star both end in -ar!", wrongFeedback: ["Different ending.", "", "Different sound.", "Doesn't rhyme."] },
-            { id: 2008, storyId: 55, category: "vocab", type: "multiple", question: "What does 'important' mean?", options: ["Not needed", "Matters a lot", "Very small", "Very quiet"], correct: 1, hint: "Police cars help people.", explanation: "Important means something matters a lot!", wrongFeedback: ["The opposite.", "", "Not about size.", "Not about sound."] },
-            { id: 2009, storyId: 55, category: "context", type: "multiple", question: "What does 'It helps people' tell us?", options: ["Police cars are dangerous", "Police cars do good work", "Police cars are toys", "Police cars are old"], correct: 1, hint: "Helping is good.", explanation: "Helping people is good work!", wrongFeedback: ["Helping is good.", "", "These are real cars.", "Not about age."] },
-            { id: 2010, storyId: 55, category: "inference", type: "truefalse", question: "Police cars are important for keeping people safe.", correct: 0, hint: "What do police do?", explanation: "Yes, police help keep people safe!", wrongFeedback: ["", "Police do protect people."] },
-            { id: 2011, storyId: 55, category: "story", type: "multiple", question: "What do police cars have?", options: ["Wings", "Lights", "Propellers", "Tracks"], correct: 1, hint: "What can you see on police cars?", explanation: "The story says police cars have lights!", wrongFeedback: ["Not on cars.", "", "That's for helicopters.", "Not on police cars."] },
-            { id: 2012, storyId: 55, category: "phonics", type: "multiple", question: "How many syllables in 'police'?", options: ["One", "Two", "Three", "Four"], correct: 1, hint: "Clap it out: po-lice.", explanation: "Po-lice has two syllables!", wrongFeedback: ["Count again.", "", "Too many.", "Way too many."] },
 // Story 56 - My Toy Box (aa) - fiction
-            { id: 2013, storyId: 56, category: "theme", type: "multiple", question: "What is this story about?", options: ["A pet dog", "A toy box", "A school", "A park"], correct: 1, hint: "Look at the title.", explanation: "The story is about a toy box!", wrongFeedback: ["No pets here.", "", "Not about school.", "Not a park story."] },
-            { id: 2014, storyId: 56, category: "story", type: "multiple", question: "What goes in the toy box?", options: ["Books and papers", "Cars, balls, and blocks", "Clothes and shoes", "Food and drinks"], correct: 1, hint: "Read what the child puts in.", explanation: "The story says cars, balls, and blocks!", wrongFeedback: ["Those aren't toys.", "", "Not clothes.", "Food doesn't go there."] },
-            { id: 2015, storyId: 56, category: "vocab", type: "multiple", question: "What does 'big' mean?", options: ["Tiny", "Large", "Round", "Soft"], correct: 1, hint: "Think about size.", explanation: "Big means large!", wrongFeedback: ["That's opposite.", "", "Not about shape.", "Not about texture."] },
-            { id: 2016, storyId: 56, category: "inference", type: "multiple", question: "How does the child feel about the toys?", options: ["Scared of them", "Likes them", "Doesn't care", "Angry at them"], correct: 1, hint: "What does the child say at the end?", explanation: "The child says 'I like my toys!'", wrongFeedback: ["No fear here.", "", "The child does care.", "No anger shown."] },
-            { id: 2017, storyId: 56, category: "summary", type: "multiple", question: "What is the toy box like?", options: ["Small", "Big", "Broken", "New"], correct: 1, hint: "Read the second sentence.", explanation: "The story says 'It is big.'", wrongFeedback: ["Read again.", "", "Not mentioned.", "Not about being new."] },
-            { id: 2018, storyId: 56, category: "grammar", type: "multiple", question: "In 'I have a toy box,' what is 'I'?", options: ["A noun", "A verb", "An adjective", "A pronoun"], correct: 3, hint: "It takes the place of a name.", explanation: "I is a pronoun - it replaces a person's name!", wrongFeedback: ["It's not a regular noun.", "Not an action.", "Not describing.", ""] },
-            { id: 2019, storyId: 56, category: "phonics", type: "multiple", question: "Which word rhymes with 'box'?", options: ["Ball", "Fox", "Bat", "Big"], correct: 1, hint: "Listen for the -ox sound.", explanation: "Box and fox both end in -ox!", wrongFeedback: ["Different sound.", "", "Not matching.", "Different ending."] },
-            { id: 2020, storyId: 56, category: "vocab", type: "multiple", question: "What are 'blocks'?", options: ["Things you eat", "Building toys", "Animals", "Plants"], correct: 1, hint: "You can stack them.", explanation: "Blocks are toys you can build with!", wrongFeedback: ["Not food.", "", "Not animals.", "Not plants."] },
-            { id: 2021, storyId: 56, category: "context", type: "multiple", question: "Why does the child put toys IN the box?", options: ["To throw them away", "To keep them organized", "To hide them forever", "To break them"], correct: 1, hint: "What are toy boxes for?", explanation: "Toy boxes help keep toys organized!", wrongFeedback: ["Not throwing away.", "", "They can get them out.", "Not to break."] },
-            { id: 2022, storyId: 56, category: "inference", type: "truefalse", question: "The child takes good care of their toys.", correct: 0, hint: "Putting toys away is caring.", explanation: "Putting toys in a box shows good care!", wrongFeedback: ["", "Organizing shows care."] },
-            { id: 2023, storyId: 56, category: "story", type: "multiple", question: "Who owns the toy box?", options: ["Mom", "Dad", "The child telling the story", "A friend"], correct: 2, hint: "Who says 'I have'?", explanation: "The child telling the story owns it!", wrongFeedback: ["The child says 'I'.", "The child says 'I'.", "", "Not a friend's box."] },
-            { id: 2024, storyId: 56, category: "phonics", type: "multiple", question: "What sound does 'toy' start with?", options: ["/t/", "/b/", "/s/", "/m/"], correct: 0, hint: "Say toy slowly.", explanation: "Toy starts with the /t/ sound!", wrongFeedback: ["", "Listen again.", "Wrong sound.", "Try again."] },
 // Story 57 - The Helicopter (B) - nonfiction
-            { id: 2025, storyId: 57, category: "theme", type: "multiple", question: "What is this story about?", options: ["A car", "A helicopter", "A boat", "A train"], correct: 1, hint: "What flies?", explanation: "The story is about a helicopter!", wrongFeedback: ["Not a car.", "", "Not a boat.", "Not a train."] },
-            { id: 2026, storyId: 57, category: "story", type: "multiple", question: "What sound does the helicopter make?", options: ["Woo, woo", "Beep, beep", "Chop, chop, chop", "Ring, ring"], correct: 2, hint: "Read the sound words.", explanation: "Helicopters go 'Chop, chop, chop!'", wrongFeedback: ["That's police cars.", "Not that sound.", "", "Wrong sound."] },
-            { id: 2027, storyId: 57, category: "vocab", type: "multiple", question: "What does 'loud' mean?", options: ["Quiet", "Makes a lot of noise", "Colorful", "Small"], correct: 1, hint: "Think about volume.", explanation: "Loud means making a lot of noise!", wrongFeedback: ["That's opposite.", "", "Not about color.", "Not about size."] },
-            { id: 2028, storyId: 57, category: "inference", type: "multiple", question: "Where do helicopters fly?", options: ["Under water", "In the sky", "Underground", "In buildings"], correct: 1, hint: "It says 'up high.'", explanation: "Helicopters fly up high in the sky!", wrongFeedback: ["Not underwater.", "", "Not underground.", "Outside, not inside."] },
-            { id: 2029, storyId: 57, category: "summary", type: "multiple", question: "Which word describes helicopters in this story?", options: ["Boring", "Fast", "Cool", "Sad"], correct: 2, hint: "Read the last sentence.", explanation: "The story says 'Helicopters are cool!'", wrongFeedback: ["Not that word.", "Not that one.", "", "Not sad."] },
-            { id: 2030, storyId: 57, category: "grammar", type: "multiple", question: "In 'It flies up high,' what is 'flies'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 1, hint: "It shows action.", explanation: "Flies is a verb - the action of flying!", wrongFeedback: ["Not a thing.", "", "Not describing.", "Not modifying."] },
-            { id: 2031, storyId: 57, category: "phonics", type: "multiple", question: "Which word rhymes with 'high'?", options: ["Hip", "Sky", "Hit", "Him"], correct: 1, hint: "Listen to the ending.", explanation: "High and sky both have the long i sound!", wrongFeedback: ["Different sound.", "", "Not matching.", "Wrong ending."] },
-            { id: 2032, storyId: 57, category: "vocab", type: "multiple", question: "What does 'flies' mean here?", options: ["Insects", "Moves through the air", "Falls down", "Swims"], correct: 1, hint: "How does it travel?", explanation: "Flies means moves through the air!", wrongFeedback: ["Not bugs.", "", "Not falling.", "Not swimming."] },
-            { id: 2033, storyId: 57, category: "context", type: "multiple", question: "Why does the author say 'Look!'?", options: ["To say goodbye", "To get attention", "To be mean", "To say sorry"], correct: 1, hint: "What do you do when something exciting appears?", explanation: "Look! gets our attention for something exciting!", wrongFeedback: ["Not goodbye.", "", "Not mean.", "Not apologizing."] },
-            { id: 2034, storyId: 57, category: "inference", type: "truefalse", question: "You can hear a helicopter from far away.", correct: 0, hint: "The story says it's loud.", explanation: "Loud things can be heard from far away!", wrongFeedback: ["", "Loud sounds travel far."] },
-            { id: 2035, storyId: 57, category: "story", type: "multiple", question: "How does the helicopter move?", options: ["It swims", "It crawls", "It flies", "It rolls"], correct: 2, hint: "What do aircraft do?", explanation: "The helicopter flies!", wrongFeedback: ["Not in water.", "Not on ground.", "", "It has no wheels for that."] },
-            { id: 2036, storyId: 57, category: "phonics", type: "multiple", question: "How many syllables in 'helicopter'?", options: ["Two", "Three", "Four", "Five"], correct: 2, hint: "Clap: hel-i-cop-ter.", explanation: "Hel-i-cop-ter has four syllables!", wrongFeedback: ["Count again.", "More than that.", "", "Not that many."] },
 // Story 58 - Building a Fort (A) - fiction
-            { id: 2037, storyId: 58, category: "theme", type: "multiple", question: "What is this story about?", options: ["Going to school", "Building a fort", "Eating dinner", "Going to bed"], correct: 1, hint: "What do Alex and his sister make?", explanation: "The story is about building a fort!", wrongFeedback: ["Not school.", "", "Not about eating.", "Not bedtime."] },
-            { id: 2038, storyId: 58, category: "story", type: "multiple", question: "What do they use to build the fort?", options: ["Wood and nails", "Blankets and pillows", "Bricks and cement", "Paper and tape"], correct: 1, hint: "What's soft and found inside?", explanation: "They use blankets and pillows!", wrongFeedback: ["Not building materials.", "", "Not those.", "Not paper."] },
-            { id: 2039, storyId: 58, category: "vocab", type: "multiple", question: "What does 'drape' mean?", options: ["Throw away", "Hang loosely over", "Cut into pieces", "Roll up"], correct: 1, hint: "How do you put a blanket on chairs?", explanation: "Drape means to hang loosely over something!", wrongFeedback: ["Not throwing.", "", "Not cutting.", "Not rolling."] },
-            { id: 2040, storyId: 58, category: "inference", type: "multiple", question: "How do Alex and his sister probably feel?", options: ["Bored", "Happy and excited", "Scared", "Angry"], correct: 1, hint: "Building forts is fun!", explanation: "They're having fun together!", wrongFeedback: ["They're active.", "", "Not that one.", "Not angry."] },
-            { id: 2041, storyId: 58, category: "summary", type: "multiple", question: "What shape do they make with the chairs?", options: ["A square", "A circle", "A triangle", "A line"], correct: 1, hint: "Read carefully about the chairs.", explanation: "They put chairs in a circle!", wrongFeedback: ["Read again.", "", "Not a triangle.", "Not a line."] },
-            { id: 2042, storyId: 58, category: "grammar", type: "multiple", question: "In 'They use blankets,' what is 'blankets'?", options: ["A verb", "A noun", "An adjective", "An adverb"], correct: 1, hint: "It's a thing.", explanation: "Blankets is a noun - it's a thing!", wrongFeedback: ["Not an action.", "", "Not describing.", "Not modifying."] },
-            { id: 2043, storyId: 58, category: "phonics", type: "multiple", question: "Which word rhymes with 'fort'?", options: ["For", "Sort", "Far", "Fun"], correct: 1, hint: "Listen for the -ort sound.", explanation: "Fort and sort rhyme!", wrongFeedback: ["Close but no.", "", "Different sound.", "Different ending."] },
-            { id: 2044, storyId: 58, category: "vocab", type: "multiple", question: "What is a 'fort'?", options: ["A kind of food", "A shelter or hideout", "A type of car", "A musical instrument"], correct: 1, hint: "It's something you can hide in.", explanation: "A fort is a shelter or hideout!", wrongFeedback: ["Not food.", "", "Not a vehicle.", "Not musical."] },
-            { id: 2045, storyId: 58, category: "context", type: "multiple", question: "Why do they put chairs in a circle?", options: ["To sit on", "To hold up the blankets", "To move around", "To jump on"], correct: 1, hint: "The blankets go on top.", explanation: "The chairs hold up the blanket roof!", wrongFeedback: ["Not for sitting.", "", "Not moving.", "Not jumping."] },
-            { id: 2046, storyId: 58, category: "inference", type: "truefalse", question: "Building forts is something siblings can do together.", correct: 0, hint: "Alex and his sister work together.", explanation: "Yes, siblings can work together on projects!", wrongFeedback: ["", "The story shows siblings cooperating."] },
-            { id: 2047, storyId: 58, category: "story", type: "multiple", question: "Who builds the fort with Alex?", options: ["His mom", "His dad", "His sister", "His friend"], correct: 2, hint: "Read the first sentence.", explanation: "Alex and his sister build the fort!", wrongFeedback: ["Not mom.", "Not dad.", "", "Not a friend."] },
-            { id: 2048, storyId: 58, category: "phonics", type: "multiple", question: "What sound does 'blankets' start with?", options: ["/bl/", "/br/", "/pl/", "/gr/"], correct: 0, hint: "Say blankets slowly.", explanation: "Blankets starts with the /bl/ blend!", wrongFeedback: ["", "Not that blend.", "Listen again.", "Different sound."] },
 // Story 59 - Fire Safety (B) - nonfiction
-            { id: 2049, storyId: 59, category: "theme", type: "multiple", question: "What is this story about?", options: ["How to start fires", "Fire safety", "Being a firefighter", "Playing with fire"], correct: 1, hint: "What do firefighters teach?", explanation: "The story is about fire safety!", wrongFeedback: ["Not starting fires.", "", "About safety, not the job.", "Playing is dangerous."] },
-            { id: 2050, storyId: 59, category: "story", type: "multiple", question: "What should you do if your clothes catch fire?", options: ["Run fast", "Stop, drop, and roll", "Jump up and down", "Call for help only"], correct: 1, hint: "What three things?", explanation: "Stop, drop, and roll!", wrongFeedback: ["Running fans flames.", "", "That won't help.", "Do stop, drop, roll too."] },
-            { id: 2051, storyId: 59, category: "vocab", type: "multiple", question: "What does 'safety' mean?", options: ["Danger", "Being protected from harm", "Playing rough", "Being scared"], correct: 1, hint: "It's about not getting hurt.", explanation: "Safety means being protected from harm!", wrongFeedback: ["That's opposite.", "", "Not rough play.", "Not about fear."] },
-            { id: 2052, storyId: 59, category: "inference", type: "multiple", question: "Why shouldn't you play with matches?", options: ["They're expensive", "They could start fires", "They're hard to find", "They're too small"], correct: 1, hint: "What can matches do?", explanation: "Matches can start dangerous fires!", wrongFeedback: ["Not about cost.", "", "Not about finding.", "Size isn't the issue."] },
-            { id: 2053, storyId: 59, category: "summary", type: "multiple", question: "What should your family have?", options: ["A fire pit", "A meeting place outside", "More matches", "A bigger house"], correct: 1, hint: "Where do you go in an emergency?", explanation: "Families should have a meeting place outside!", wrongFeedback: ["Not a fire pit.", "", "Never more matches.", "Not about house size."] },
-            { id: 2054, storyId: 59, category: "grammar", type: "multiple", question: "In 'Never play with matches,' what is 'never'?", options: ["A noun", "A verb", "An adverb", "An adjective"], correct: 2, hint: "It tells when (not ever).", explanation: "Never is an adverb - it tells when!", wrongFeedback: ["Not a thing.", "Not an action.", "", "Not describing a noun."] },
-            { id: 2055, storyId: 59, category: "phonics", type: "multiple", question: "Which word rhymes with 'fire'?", options: ["Far", "Higher", "Fit", "Fun"], correct: 1, hint: "Listen for the -ire sound.", explanation: "Fire and higher rhyme!", wrongFeedback: ["Different sound.", "", "Not matching.", "Different ending."] },
-            { id: 2056, storyId: 59, category: "vocab", type: "multiple", question: "What does 'catch fire' mean?", options: ["Grab a fire", "Start burning", "Throw a fire", "Find a fire"], correct: 1, hint: "What happens when something burns?", explanation: "Catch fire means start burning!", wrongFeedback: ["Can't grab fire.", "", "Can't throw fire.", "Not about finding."] },
-            { id: 2057, storyId: 59, category: "context", type: "multiple", question: "Why does rolling help when on fire?", options: ["It's fun", "It puts out flames", "It makes you dizzy", "It cools you down"], correct: 1, hint: "Rolling smothers flames.", explanation: "Rolling puts out the flames!", wrongFeedback: ["Not about fun.", "", "Not the point.", "Not really cooling."] },
-            { id: 2058, storyId: 59, category: "inference", type: "truefalse", question: "Learning fire safety can save lives.", correct: 0, hint: "Knowing what to do in emergencies helps.", explanation: "Yes, fire safety knowledge saves lives!", wrongFeedback: ["", "Safety rules protect people."] },
-            { id: 2059, storyId: 59, category: "story", type: "multiple", question: "Who teaches fire safety?", options: ["Teachers only", "Parents only", "Firefighters", "Police officers"], correct: 2, hint: "Read the first sentence.", explanation: "Firefighters teach fire safety!", wrongFeedback: ["Not just teachers.", "Not just parents.", "", "Not police."] },
-            { id: 2060, storyId: 59, category: "phonics", type: "multiple", question: "How many syllables in 'firefighter'?", options: ["Two", "Three", "Four", "Five"], correct: 1, hint: "Clap: fire-fight-er.", explanation: "Fire-fight-er has three syllables!", wrongFeedback: ["More than two.", "", "Not that many.", "Too many."] },
 // Story 60 - The Lost Toy (A) - fiction
-            { id: 2061, storyId: 60, category: "theme", type: "multiple", question: "What is this story about?", options: ["Getting a new toy", "Losing and finding a toy", "Breaking a toy", "Sharing toys"], correct: 1, hint: "What happens to Sam's toy?", explanation: "Sam loses and finds his toy car!", wrongFeedback: ["Not a new toy.", "", "Not breaking.", "Not sharing."] },
-            { id: 2062, storyId: 60, category: "story", type: "multiple", question: "Where did Sam finally find the toy?", options: ["Under his bed", "In the toy box", "In the backyard", "At school"], correct: 2, hint: "Where did the dog take it?", explanation: "Sam found it in the backyard!", wrongFeedback: ["He looked there.", "He looked there.", "", "Not at school."] },
-            { id: 2063, storyId: 60, category: "vocab", type: "multiple", question: "What does 'lost' mean?", options: ["Found", "Can't find", "New", "Broken"], correct: 1, hint: "Sam couldn't find his toy.", explanation: "Lost means you can't find something!", wrongFeedback: ["That's opposite.", "", "Not about being new.", "Not broken."] },
-            { id: 2064, storyId: 60, category: "inference", type: "multiple", question: "Who probably took the toy outside?", options: ["Sam", "Sam's mom", "The dog", "The wind"], correct: 2, hint: "Read the last sentence carefully.", explanation: "The dog had taken it!", wrongFeedback: ["Sam was looking.", "Not mom.", "", "Not the wind."] },
-            { id: 2065, storyId: 60, category: "summary", type: "multiple", question: "What kind of toy did Sam lose?", options: ["A ball", "A toy car", "A teddy bear", "A puzzle"], correct: 1, hint: "What does Sam play with?", explanation: "Sam lost his favorite toy car!", wrongFeedback: ["Not a ball.", "", "Not a bear.", "Not a puzzle."] },
-            { id: 2066, storyId: 60, category: "grammar", type: "multiple", question: "In 'He looked everywhere,' what is 'everywhere'?", options: ["A noun", "A verb", "An adverb", "An adjective"], correct: 2, hint: "It tells where he looked.", explanation: "Everywhere is an adverb - tells where!", wrongFeedback: ["Not a thing.", "Not an action.", "", "Not describing a noun."] },
-            { id: 2067, storyId: 60, category: "phonics", type: "multiple", question: "Which word rhymes with 'bed'?", options: ["Bad", "Red", "Big", "Bud"], correct: 1, hint: "Listen for the -ed sound.", explanation: "Bed and red rhyme!", wrongFeedback: ["Different sound.", "", "Not matching.", "Different vowel."] },
-            { id: 2068, storyId: 60, category: "vocab", type: "multiple", question: "What does 'favorite' mean?", options: ["Least liked", "Most liked", "Newest", "Biggest"], correct: 1, hint: "It's the one he likes best.", explanation: "Favorite means most liked!", wrongFeedback: ["That's opposite.", "", "Not about newness.", "Not about size."] },
-            { id: 2069, storyId: 60, category: "context", type: "multiple", question: "Why did Sam look 'everywhere'?", options: ["For fun", "He really wanted to find it", "He was bored", "Someone told him to"], correct: 1, hint: "It was his favorite toy.", explanation: "He searched hard because it was his favorite!", wrongFeedback: ["Not for fun.", "", "Not bored.", "He wanted to find it."] },
-            { id: 2070, storyId: 60, category: "inference", type: "truefalse", question: "Sam felt happy when he found his toy.", correct: 0, hint: "How do you feel when you find something lost?", explanation: "Finding lost things makes us happy!", wrongFeedback: ["", "Finding lost items is a relief."] },
-            { id: 2071, storyId: 60, category: "story", type: "multiple", question: "Where did Sam NOT look?", options: ["Under his bed", "In the backyard first", "Behind the couch", "In the toy box"], correct: 1, hint: "He found it there, but looked there last.", explanation: "He didn't look in the backyard until the end!", wrongFeedback: ["He looked there.", "", "He looked there.", "He looked there."] },
-            { id: 2072, storyId: 60, category: "phonics", type: "multiple", question: "What sound does 'finally' start with?", options: ["/f/", "/v/", "/th/", "/s/"], correct: 0, hint: "Say 'finally' slowly.", explanation: "Finally starts with the /f/ sound!", wrongFeedback: ["", "Not that sound.", "Listen again.", "Different sound."] },
 // Story 61 - How Bees Make Honey (A) - nonfiction
-            { id: 2073, storyId: 61, category: "theme", type: "multiple", question: "What is this story about?", options: ["How birds build nests", "How bees make honey", "How flowers grow", "How ants work"], correct: 1, hint: "Look at the title.", explanation: "The story explains how bees make honey!", wrongFeedback: ["Not about birds.", "", "Not about flowers.", "Not about ants."] },
-            { id: 2074, storyId: 61, category: "story", type: "multiple", question: "What do bees collect from flowers?", options: ["Pollen only", "Nectar", "Water", "Seeds"], correct: 1, hint: "What sweet liquid do flowers have?", explanation: "Bees collect nectar from flowers!", wrongFeedback: ["They get nectar.", "", "Not water.", "Not seeds."] },
-            { id: 2075, storyId: 61, category: "vocab", type: "multiple", question: "What does 'hive' mean?", options: ["A flower garden", "Where bees live", "A kind of honey", "A type of bee"], correct: 1, hint: "It's the bees' home.", explanation: "A hive is where bees live!", wrongFeedback: ["Not a garden.", "", "Not honey.", "Not a bee type."] },
-            { id: 2076, storyId: 61, category: "inference", type: "multiple", question: "Why do bees fan the nectar?", options: ["To keep cool", "To help it dry into honey", "To make it taste better", "For exercise"], correct: 1, hint: "Fanning removes moisture.", explanation: "Fanning helps the nectar dry into honey!", wrongFeedback: ["Not for cooling.", "", "Not for taste.", "Not exercise."] },
-            { id: 2077, storyId: 61, category: "summary", type: "multiple", question: "What shape are the cells in a hive?", options: ["Square", "Circle", "Hexagon", "Triangle"], correct: 2, hint: "Read about where nectar is stored.", explanation: "The cells are hexagon-shaped!", wrongFeedback: ["Not squares.", "Not circles.", "", "Not triangles."] },
-            { id: 2078, storyId: 61, category: "grammar", type: "multiple", question: "In 'Bees are amazing insects,' what is 'amazing'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 2, hint: "It describes the bees.", explanation: "Amazing is an adjective describing bees!", wrongFeedback: ["Not a thing.", "Not an action.", "", "Not modifying a verb."] },
-            { id: 2079, storyId: 61, category: "phonics", type: "multiple", question: "Which word rhymes with 'bee'?", options: ["Bed", "Tree", "Boy", "Ball"], correct: 1, hint: "Listen for the long e sound.", explanation: "Bee and tree both have the long e sound!", wrongFeedback: ["Different sound.", "", "Not matching.", "Different vowel."] },
-            { id: 2080, storyId: 61, category: "vocab", type: "multiple", question: "What does 'nectar' mean?", options: ["Bee wings", "Sweet liquid from flowers", "Honey", "Beeswax"], correct: 1, hint: "It comes from flowers.", explanation: "Nectar is sweet liquid from flowers!", wrongFeedback: ["Not wings.", "", "Nectar becomes honey.", "Different substance."] },
-            { id: 2081, storyId: 61, category: "context", type: "multiple", question: "Why are bees called 'amazing insects'?", options: ["They're colorful", "They can make honey", "They're very big", "They live alone"], correct: 1, hint: "Think about what they create.", explanation: "Making honey is amazing work!", wrongFeedback: ["Not about color.", "", "They're small.", "They live together."] },
-            { id: 2082, storyId: 61, category: "inference", type: "truefalse", question: "Bees work together as a team.", correct: 0, hint: "Many bees live in one hive.", explanation: "Yes, bees cooperate to make honey!", wrongFeedback: ["", "Hives have many bees working together."] },
-            { id: 2083, storyId: 61, category: "story", type: "multiple", question: "Where do bees store the nectar?", options: ["In flowers", "In hexagon cells", "In trees", "On the ground"], correct: 1, hint: "What special shape?", explanation: "Bees store nectar in hexagon cells!", wrongFeedback: ["They take it from flowers.", "", "Not in trees.", "Not on ground."] },
-            { id: 2084, storyId: 61, category: "phonics", type: "multiple", question: "How many syllables in 'honey'?", options: ["One", "Two", "Three", "Four"], correct: 1, hint: "Clap: hon-ey.", explanation: "Hon-ey has two syllables!", wrongFeedback: ["More than one.", "", "Not that many.", "Too many."] },
 // Story 62 - The Puddle Jump (A) - fiction
-            { id: 2085, storyId: 62, category: "theme", type: "multiple", question: "What is this story about?", options: ["Playing in snow", "Jumping in puddles", "Swimming in a pool", "Playing indoors"], correct: 1, hint: "What does Mia do outside?", explanation: "Mia has fun jumping in puddles!", wrongFeedback: ["Not snow.", "", "Not a pool.", "She goes outside."] },
-            { id: 2086, storyId: 62, category: "story", type: "multiple", question: "What did Mia put on before going outside?", options: ["A coat", "Rain boots", "A hat", "Gloves"], correct: 1, hint: "What do you wear in puddles?", explanation: "Mia put on her rain boots!", wrongFeedback: ["Not mentioned.", "", "Not mentioned.", "Not mentioned."] },
-            { id: 2087, storyId: 62, category: "vocab", type: "multiple", question: "What is a 'puddle'?", options: ["A small pool of water", "A type of rain", "A kind of boot", "A splash sound"], correct: 0, hint: "It forms after rain.", explanation: "A puddle is a small pool of water!", wrongFeedback: ["", "Not rain itself.", "Not footwear.", "Not a sound."] },
-            { id: 2088, storyId: 62, category: "inference", type: "multiple", question: "How does Mia feel about puddles?", options: ["Scared", "Excited and happy", "Bored", "Angry"], correct: 1, hint: "She runs outside to jump.", explanation: "Mia loves puddles - she runs to them!", wrongFeedback: ["Not scared.", "", "She's having fun.", "Not angry."] },
-            { id: 2089, storyId: 62, category: "summary", type: "multiple", question: "What happened when Mia jumped?", options: ["She fell down", "Water splashed everywhere", "The puddle disappeared", "She got scared"], correct: 1, hint: "What does 'Splash!' mean?", explanation: "The water went everywhere when she splashed!", wrongFeedback: ["She jumped well.", "", "Still there.", "She was happy."] },
-            { id: 2090, storyId: 62, category: "grammar", type: "multiple", question: "In 'Mia ran outside,' what is 'ran'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 1, hint: "It's an action word.", explanation: "Ran is a verb - it's an action!", wrongFeedback: ["Not a thing.", "", "Not describing.", "Not modifying."] },
-            { id: 2091, storyId: 62, category: "phonics", type: "multiple", question: "Which word rhymes with 'rain'?", options: ["Run", "Train", "Ring", "Rock"], correct: 1, hint: "Listen for the -ain sound.", explanation: "Rain and train rhyme!", wrongFeedback: ["Different sound.", "", "Not matching.", "Different ending."] },
-            { id: 2092, storyId: 62, category: "vocab", type: "multiple", question: "What does 'splash' mean?", options: ["Fall quietly", "Make water fly up", "Walk slowly", "Stand still"], correct: 1, hint: "What happens when you jump in water?", explanation: "Splash means water flies up!", wrongFeedback: ["Not quiet.", "", "Not slow.", "Not still."] },
-            { id: 2093, storyId: 62, category: "context", type: "multiple", question: "Why were there puddles?", options: ["Someone spilled water", "It rained all night", "A pipe broke", "Snow melted"], correct: 1, hint: "Read the first sentence.", explanation: "It rained all night, creating puddles!", wrongFeedback: ["Not spilled.", "", "Not mentioned.", "Not mentioned."] },
-            { id: 2094, storyId: 62, category: "inference", type: "truefalse", question: "Rain boots help keep feet dry in puddles.", correct: 0, hint: "That's why Mia wore them.", explanation: "Yes, rain boots keep water out!", wrongFeedback: ["", "Boots protect feet from water."] },
-            { id: 2095, storyId: 62, category: "story", type: "multiple", question: "When did Mia go outside?", options: ["At night", "In the morning", "In the afternoon", "At noon"], correct: 1, hint: "The story says 'In the morning.'", explanation: "Mia went out in the morning!", wrongFeedback: ["Rain was at night.", "", "Not afternoon.", "Not noon."] },
-            { id: 2096, storyId: 62, category: "phonics", type: "multiple", question: "What sound does 'jump' end with?", options: ["/p/", "/t/", "/m/", "/n/"], correct: 0, hint: "Say 'jump' slowly.", explanation: "Jump ends with the /p/ sound!", wrongFeedback: ["", "Listen again.", "Not that sound.", "Different ending."] },
 // Story 63 - The Lemonade Stand (B) - fiction
-            { id: 2097, storyId: 63, category: "theme", type: "multiple", question: "What is this story about?", options: ["Making cookies", "Running a lemonade stand", "Going to the store", "Planting a garden"], correct: 1, hint: "What do Sofia and her brother do?", explanation: "They open a lemonade stand!", wrongFeedback: ["Not cookies.", "", "Not shopping.", "Not gardening."] },
-            { id: 2098, storyId: 63, category: "story", type: "multiple", question: "What did they use to make lemonade?", options: ["Powder mix", "Real lemons and sugar", "Lemon candy", "Orange juice"], correct: 1, hint: "What's in fresh lemonade?", explanation: "They used real lemons and sugar!", wrongFeedback: ["Fresh ingredients.", "", "Not candy.", "Wrong fruit."] },
-            { id: 2099, storyId: 63, category: "vocab", type: "multiple", question: "What does 'pitcher' mean?", options: ["A baseball player", "A container for drinks", "A type of cup", "A kitchen tool"], correct: 1, hint: "It holds lemonade.", explanation: "A pitcher is a container for pouring drinks!", wrongFeedback: ["Different meaning here.", "", "Bigger than a cup.", "For pouring drinks."] },
-            { id: 2100, storyId: 63, category: "inference", type: "multiple", question: "Why did they draw a colorful sign?", options: ["For homework", "To attract customers", "Just for fun", "Their parents said to"], correct: 1, hint: "How do people know about the stand?", explanation: "A colorful sign attracts customers!", wrongFeedback: ["Not homework.", "", "It has a purpose.", "Not mentioned."] },
-            { id: 2101, storyId: 63, category: "summary", type: "multiple", question: "How did Sofia and her brother work together?", options: ["They argued a lot", "They made and sold lemonade together", "Only one did work", "They didn't get along"], correct: 1, hint: "What did they do as a team?", explanation: "They worked together on everything!", wrongFeedback: ["No arguments.", "", "Both worked.", "They cooperated."] },
-            { id: 2102, storyId: 63, category: "grammar", type: "multiple", question: "In 'They made fresh lemonade,' what is 'fresh'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 2, hint: "It describes the lemonade.", explanation: "Fresh is an adjective describing the lemonade!", wrongFeedback: ["Not a thing.", "Not an action.", "", "Not modifying a verb."] },
-            { id: 2103, storyId: 63, category: "phonics", type: "multiple", question: "Which word rhymes with 'stand'?", options: ["Star", "Hand", "Stop", "Stick"], correct: 1, hint: "Listen for the -and sound.", explanation: "Stand and hand rhyme!", wrongFeedback: ["Different sound.", "", "Not matching.", "Different ending."] },
-            { id: 2104, storyId: 63, category: "vocab", type: "multiple", question: "What does 'decided' mean?", options: ["Couldn't choose", "Made a choice", "Changed their mind", "Forgot"], correct: 1, hint: "They chose to do something.", explanation: "Decided means made a choice!", wrongFeedback: ["They did choose.", "", "They stuck with it.", "They remembered."] },
-            { id: 2105, storyId: 63, category: "context", type: "multiple", question: "Why is lemonade a good thing to sell?", options: ["It's free to make", "People like cold drinks", "No one else sells it", "It never runs out"], correct: 1, hint: "What do people want on hot days?", explanation: "People enjoy cold drinks!", wrongFeedback: ["It costs money.", "", "Others sell it too.", "It can run out."] },
-            { id: 2106, storyId: 63, category: "inference", type: "truefalse", question: "Sofia and her brother learned about working together.", correct: 0, hint: "They did everything as a team.", explanation: "Yes, they practiced teamwork!", wrongFeedback: ["", "Running a stand requires cooperation."] },
-            { id: 2107, storyId: 63, category: "story", type: "multiple", question: "Who opened the lemonade stand?", options: ["Sofia alone", "Her brother alone", "Sofia and her brother", "Their parents"], correct: 2, hint: "Read the first sentence.", explanation: "Sofia and her brother did it together!", wrongFeedback: ["Both did it.", "Both did it.", "", "Kids did it."] },
-            { id: 2108, storyId: 63, category: "phonics", type: "multiple", question: "How many syllables in 'lemonade'?", options: ["Two", "Three", "Four", "Five"], correct: 1, hint: "Clap: lem-on-ade.", explanation: "Lem-on-ade has three syllables!", wrongFeedback: ["More than two.", "", "Not that many.", "Too many."] },
 // Story 64 - Learning to Swim (B) - fiction
-            { id: 2109, storyId: 64, category: "theme", type: "multiple", question: "What is this story about?", options: ["Going to the beach", "Learning to swim", "Playing in the rain", "Taking a bath"], correct: 1, hint: "What does Ben learn?", explanation: "Ben learns to swim!", wrongFeedback: ["Not the beach.", "", "Not rain.", "Not bathing."] },
-            { id: 2110, storyId: 64, category: "story", type: "multiple", question: "What was Ben afraid of?", options: ["The shallow end", "The deep end", "The teacher", "The water"], correct: 1, hint: "Which part of the pool?", explanation: "Ben was afraid of the deep end!", wrongFeedback: ["Not shallow.", "", "Teacher was kind.", "He learned to swim."] },
-            { id: 2111, storyId: 64, category: "vocab", type: "multiple", question: "What does 'patient' mean?", options: ["In a hurry", "Willing to wait and help", "Angry", "Confused"], correct: 1, hint: "The teacher took time with Ben.", explanation: "Patient means willing to wait and help!", wrongFeedback: ["Not rushing.", "", "Not angry.", "Not confused."] },
-            { id: 2112, storyId: 64, category: "inference", type: "multiple", question: "How did Ben probably feel at the end?", options: ["Still scared", "Proud and confident", "Tired and sad", "Angry at the teacher"], correct: 1, hint: "He learned new skills.", explanation: "Ben felt proud of his accomplishment!", wrongFeedback: ["He overcame fear.", "", "He succeeded.", "Teacher helped."] },
-            { id: 2113, storyId: 64, category: "summary", type: "multiple", question: "What did Ben learn first?", options: ["To dive", "To float on his back", "To swim fast", "To jump in"], correct: 1, hint: "What's the first step?", explanation: "Ben first learned to float!", wrongFeedback: ["Not diving.", "", "Speed came later.", "Not jumping."] },
-            { id: 2114, storyId: 64, category: "grammar", type: "multiple", question: "In 'His teacher was kind,' what is 'kind'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 2, hint: "It describes the teacher.", explanation: "Kind is an adjective describing the teacher!", wrongFeedback: ["Not a thing.", "Not an action.", "", "Not modifying a verb."] },
-            { id: 2115, storyId: 64, category: "phonics", type: "multiple", question: "Which word rhymes with 'swim'?", options: ["Swam", "Him", "Sweet", "Swing"], correct: 1, hint: "Listen for the -im sound.", explanation: "Swim and him rhyme!", wrongFeedback: ["Different sound.", "", "Different ending.", "Not matching."] },
-            { id: 2116, storyId: 64, category: "vocab", type: "multiple", question: "What does 'float' mean?", options: ["Sink down", "Stay on top of water", "Move fast", "Go underwater"], correct: 1, hint: "You don't sink.", explanation: "Float means stay on top of water!", wrongFeedback: ["That's opposite.", "", "Not about speed.", "Not going under."] },
-            { id: 2117, storyId: 64, category: "context", type: "multiple", question: "Why was the teacher patient?", options: ["They were bored", "Ben was scared and needed time", "Swimming is easy", "They had nothing to do"], correct: 1, hint: "Ben had fear to overcome.", explanation: "Scared students need patient teachers!", wrongFeedback: ["Not bored.", "", "Ben found it hard.", "Teaching takes effort."] },
-            { id: 2118, storyId: 64, category: "inference", type: "truefalse", question: "Practice helps you overcome fears.", correct: 0, hint: "Ben practiced and got better.", explanation: "Yes, practice builds confidence!", wrongFeedback: ["", "Ben's story shows this."] },
-            { id: 2119, storyId: 64, category: "story", type: "multiple", question: "Who taught Ben to swim?", options: ["His mom", "His dad", "His swimming teacher", "His friend"], correct: 2, hint: "Who was patient and kind?", explanation: "His swimming teacher taught him!", wrongFeedback: ["Not mentioned.", "Not mentioned.", "", "Not mentioned."] },
-            { id: 2120, storyId: 64, category: "phonics", type: "multiple", question: "What sound does 'kick' start with?", options: ["/k/", "/s/", "/t/", "/p/"], correct: 0, hint: "Say 'kick' slowly.", explanation: "Kick starts with the /k/ sound!", wrongFeedback: ["", "Listen again.", "Not that sound.", "Different sound."] },
 // Story 65 - Recycling Helps Earth (D) - nonfiction
             { id: 2121, storyId: 65, category: "theme", type: "multiple", question: "What is this story about?", options: ["Throwing away trash", "How recycling helps Earth", "Making new products", "Buying plastic"], correct: 1, hint: "What helps the planet?", explanation: "The story is about how recycling helps Earth!", wrongFeedback: ["Recycling is better.", "", "That's part of it.", "Not about buying."] },
             { id: 2122, storyId: 65, category: "story", type: "multiple", question: "What can recycled plastic bottles become?", options: ["Nothing useful", "Playground equipment", "More bottles only", "Food containers"], correct: 1, hint: "What new things are mentioned?", explanation: "Plastic bottles can become playground equipment!", wrongFeedback: ["They're useful.", "", "Many things.", "Not mentioned."] },
@@ -11084,31 +10944,7 @@ var questions = [
             { id: 2131, storyId: 65, category: "story", type: "multiple", question: "What is one way to help planet Earth?", options: ["Use more plastic", "Throw everything away", "Recycle", "Ignore trash"], correct: 2, hint: "What does the story encourage?", explanation: "Recycling is one way to help!", wrongFeedback: ["Use less.", "Recycle instead.", "", "Deal with trash properly."] },
             { id: 2132, storyId: 65, category: "phonics", type: "multiple", question: "Which word has the same 'ea' sound as 'Earth'?", options: ["Eat", "Learn", "Bean", "Team"], correct: 1, hint: "Earth has a unique 'ea' sound.", explanation: "Earth and learn have the same 'er' sound!", wrongFeedback: ["Different sound.", "", "Different sound.", "Different sound."] },
 // Story 66 - The Planets (B) - nonfiction
-            { id: 2133, storyId: 66, category: "theme", type: "multiple", question: "What is this story about?", options: ["Stars in the sky", "The planets in our solar system", "The moon", "Astronauts"], correct: 1, hint: "What orbits the Sun?", explanation: "The story is about the planets!", wrongFeedback: ["Not about stars.", "", "Not mainly moon.", "Not about people."] },
-            { id: 2134, storyId: 66, category: "story", type: "multiple", question: "How many planets are in our solar system?", options: ["Six", "Seven", "Eight", "Nine"], correct: 2, hint: "Read the first sentence.", explanation: "There are eight planets!", wrongFeedback: ["More than that.", "One more.", "", "Used to be nine."] },
-            { id: 2135, storyId: 66, category: "vocab", type: "multiple", question: "What does 'orbit' mean?", options: ["Fall down", "Travel around something", "Stay still", "Spin fast"], correct: 1, hint: "Planets move around the Sun.", explanation: "Orbit means to travel around something!", wrongFeedback: ["Not falling.", "", "They move.", "Not just spinning."] },
-            { id: 2136, storyId: 66, category: "inference", type: "multiple", question: "Which planet do we live on?", options: ["Mercury", "Venus", "Earth", "Mars"], correct: 2, hint: "The story tells us.", explanation: "We live on Earth!", wrongFeedback: ["Too hot.", "Too hot.", "", "No humans there yet."] },
-            { id: 2137, storyId: 66, category: "summary", type: "multiple", question: "Which planet is the hottest?", options: ["Mercury", "Venus", "Earth", "Mars"], correct: 1, hint: "Not the closest to the Sun!", explanation: "Venus is the hottest planet!", wrongFeedback: ["Not the hottest.", "", "We're moderate.", "It's cold."] },
-            { id: 2138, storyId: 66, category: "grammar", type: "multiple", question: "In 'Mercury is smallest,' what is 'smallest'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 2, hint: "It describes Mercury.", explanation: "Smallest is an adjective!", wrongFeedback: ["Not a thing.", "Not an action.", "", "Not modifying a verb."] },
-            { id: 2139, storyId: 66, category: "phonics", type: "multiple", question: "Which word rhymes with 'sun'?", options: ["Son", "Soon", "Sing", "Sat"], correct: 0, hint: "Listen for the -un sound.", explanation: "Sun and son rhyme (they sound the same)!", wrongFeedback: ["", "Different vowel.", "Different ending.", "Different sound."] },
-            { id: 2140, storyId: 66, category: "vocab", type: "multiple", question: "What does 'solar system' mean?", options: ["One planet", "The Sun and everything orbiting it", "Just the stars", "The moon only"], correct: 1, hint: "Solar relates to the Sun.", explanation: "Solar system is the Sun and everything around it!", wrongFeedback: ["Many planets.", "", "Not stars.", "Includes planets."] },
-            { id: 2141, storyId: 66, category: "context", type: "multiple", question: "Why is Mars called 'the red planet'?", options: ["It's hot", "It looks red from Earth", "It has red aliens", "It's angry"], correct: 1, hint: "What color does it appear?", explanation: "Mars appears red when we see it!", wrongFeedback: ["Color, not temperature.", "", "No aliens proven.", "Planets don't feel."] },
-            { id: 2142, storyId: 66, category: "inference", type: "truefalse", question: "All eight planets are the same size.", correct: 1, hint: "Mercury is smallest.", explanation: "No, planets vary greatly in size!", wrongFeedback: ["Sizes are different.", ""] },
-            { id: 2143, storyId: 66, category: "story", type: "multiple", question: "Which planet is closest to the Sun?", options: ["Earth", "Venus", "Mercury", "Mars"], correct: 2, hint: "Read about Mercury.", explanation: "Mercury is closest to the Sun!", wrongFeedback: ["Third from Sun.", "Second from Sun.", "", "Fourth from Sun."] },
-            { id: 2144, storyId: 66, category: "phonics", type: "multiple", question: "How many syllables in 'Jupiter'?", options: ["Two", "Three", "Four", "Five"], correct: 1, hint: "Clap: Ju-pi-ter.", explanation: "Ju-pi-ter has three syllables!", wrongFeedback: ["More than two.", "", "Not that many.", "Too many."] },
 // Story 67 - The Science Fair (B) - fiction
-            { id: 2145, storyId: 67, category: "theme", type: "multiple", question: "What is this story about?", options: ["Art class", "A science experiment", "Reading books", "Playing sports"], correct: 1, hint: "What fair is it?", explanation: "Aisha does a science experiment!", wrongFeedback: ["Not art.", "", "Not reading.", "Not sports."] },
-            { id: 2146, storyId: 67, category: "story", type: "multiple", question: "What did Aisha test?", options: ["Which crayon is best", "Which paper towel is strongest", "Which glue sticks best", "Which paint is brightest"], correct: 1, hint: "What absorbs water?", explanation: "She tested paper towel strength!", wrongFeedback: ["Not crayons.", "", "Not glue.", "Not paint."] },
-            { id: 2147, storyId: 67, category: "vocab", type: "multiple", question: "What does 'experiment' mean?", options: ["A guess", "A test to learn something", "A story", "A mistake"], correct: 1, hint: "Scientists do these.", explanation: "An experiment is a test to learn something!", wrongFeedback: ["More than guessing.", "", "Not a story.", "Not a mistake."] },
-            { id: 2148, storyId: 67, category: "inference", type: "multiple", question: "Why did Aisha use the same amount of water for each brand?", options: ["To waste water", "To make the test fair", "She didn't know how much", "Water was limited"], correct: 1, hint: "What makes an experiment valid?", explanation: "Same amounts make the test fair!", wrongFeedback: ["Not wasting.", "", "She knew.", "Not limited."] },
-            { id: 2149, storyId: 67, category: "summary", type: "multiple", question: "What made the paper towels tear?", options: ["Pulling on them", "The weight of pennies", "Cutting them", "Drying out"], correct: 1, hint: "What did she place on the wet towels?", explanation: "Pennies made them tear when heavy enough!", wrongFeedback: ["Not pulling.", "", "Not cutting.", "They were wet."] },
-            { id: 2150, storyId: 67, category: "grammar", type: "multiple", question: "In 'Aisha tested the towels,' what is 'tested'?", options: ["A noun", "A verb", "An adjective", "An adverb"], correct: 1, hint: "It's what Aisha did.", explanation: "Tested is a verb - an action!", wrongFeedback: ["Not a thing.", "", "Not describing.", "Not modifying."] },
-            { id: 2151, storyId: 67, category: "phonics", type: "multiple", question: "Which word rhymes with 'fair'?", options: ["Far", "Chair", "Fire", "Four"], correct: 1, hint: "Listen for the -air sound.", explanation: "Fair and chair rhyme!", wrongFeedback: ["Different sound.", "", "Different vowel.", "Different ending."] },
-            { id: 2152, storyId: 67, category: "vocab", type: "multiple", question: "What does 'brand' mean?", options: ["A type made by a company", "A color", "A size", "A shape"], correct: 0, hint: "Different companies make paper towels.", explanation: "A brand is a type made by a specific company!", wrongFeedback: ["", "Not about color.", "Not about size.", "Not about shape."] },
-            { id: 2153, storyId: 67, category: "context", type: "multiple", question: "Why is this a good science fair project?", options: ["It's easy", "It tests and compares things", "It uses water", "It's messy"], correct: 1, hint: "What do scientists do?", explanation: "Good projects test and compare!", wrongFeedback: ["Difficulty varies.", "", "Not just water.", "Messiness doesn't matter."] },
-            { id: 2154, storyId: 67, category: "inference", type: "truefalse", question: "Aisha used the scientific method in her experiment.", correct: 0, hint: "She tested, measured, and compared.", explanation: "Yes, she followed scientific steps!", wrongFeedback: ["", "Testing and measuring is scientific."] },
-            { id: 2155, storyId: 67, category: "story", type: "multiple", question: "What did Aisha place on the wet paper towels?", options: ["Rocks", "Pennies", "Books", "Toys"], correct: 1, hint: "Small, metal objects.", explanation: "She placed pennies on each towel!", wrongFeedback: ["Too heavy.", "", "Too big.", "Not mentioned."] },
-            { id: 2156, storyId: 67, category: "phonics", type: "multiple", question: "What sound does 'science' start with?", options: ["/sk/", "/s/", "/sh/", "/ch/"], correct: 1, hint: "Say 'science' slowly.", explanation: "Science starts with the /s/ sound!", wrongFeedback: ["Just /s/.", "", "Not that sound.", "Different sound."] },
 // Story 68 - The Escape Room (E) - fiction
             { id: 2157, storyId: 68, category: "theme", type: "multiple", question: "What is this story mainly about?", options: ["A wild movie", "Solving puzzles in an escape room", "Building a room", "Running away"], correct: 1, hint: "What challenge do they face?", explanation: "Emma and friends solve escape room puzzles!", wrongFeedback: ["Not a movie.", "", "Not building.", "Not running away."] },
             { id: 2158, storyId: 68, category: "story", type: "multiple", question: "How much time did they have to escape?", options: ["Thirty minutes", "Forty-five minutes", "Sixty minutes", "Ninety minutes"], correct: 2, hint: "One hour.", explanation: "They had sixty minutes!", wrongFeedback: ["More time.", "More time.", "", "Less time."] },
@@ -11514,72 +11350,28 @@ var questions = [
             { id: 2528, storyId: 98, category: "phonics", type: "multiple", question: "Which word rhymes with 'cure'?", options: ["Car", "Sure", "Core", "Care"], correct: 1, hint: "Listen for the -ure sound.", explanation: "Cure and sure rhyme!", wrongFeedback: ["Different vowel.", "", "Different sound.", "Different ending."] },
 
             // PARTS OF SPEECH HIGHLIGHT QUESTIONS (2 per story)
-            { id: 2529, storyId: 1, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Max is a big brown dog.", answers: {0: "noun", 1: "verb", 3: "adjective", 4: "adjective", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Max, dog are nouns. is is a verb. big, brown are adjectives." },
-            { id: 2530, storyId: 1, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "He lives with the Lee family.", answers: {0: "noun", 1: "verb", 4: "noun", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "He, Lee, family are nouns. lives is a verb." },
-            { id: 2531, storyId: 2, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Anna was new at school.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Anna, school are nouns. was is a verb. new is an adjective." },
-            { id: 2532, storyId: 2, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "She felt shy and scared.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "She is a noun. felt is a verb. shy, scared are adjectives." },
-            { id: 2533, storyId: 3, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Grandma and I planted seeds in the garden.", answers: {0: "noun", 2: "noun", 3: "verb", 4: "noun", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Grandma, I, seeds, garden are nouns. planted is a verb." },
-            { id: 2534, storyId: 3, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "We watered them every day.", answers: {0: "noun", 1: "verb", 2: "noun", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "We, them, day are nouns. watered is a verb." },
-            { id: 2535, storyId: 4, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It was raining hard outside.", answers: {0: "noun", 1: "verb", 3: "adjective", 4: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "It is a noun. was is a verb. hard is an adjective. outside is an adverb." },
-            { id: 2536, storyId: 4, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Ben felt bored at first.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Ben is a noun. felt is a verb. bored, first are adjectives." },
-            { id: 2537, storyId: 5, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Jada wanted to ride her bike without training wheels.", answers: {0: "noun", 1: "verb", 3: "verb", 4: "noun", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Jada, her, bike are nouns. wanted, ride are verbs." },
-            { id: 2538, storyId: 5, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "She tried and tried, but she kept falling down.", answers: {0: "noun", 1: "verb", 3: "verb", 5: "noun", 6: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "She, she are nouns. tried, tried, kept are verbs." },
-            { id: 2539, storyId: 6, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Marco had two cookies in his lunch box.", answers: {0: "noun", 1: "verb", 6: "noun", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Marco, lunch, box are nouns. had is a verb." },
-            { id: 2540, storyId: 6, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Leo looked sad as everyone else ate.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "noun", 6: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Leo, everyone are nouns. looked, ate are verbs. sad is an adjective." },
-            { id: 2541, storyId: 7, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sam saw a kitten.", answers: {0: "noun", 1: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Sam, kitten are nouns. saw is a verb." },
-            { id: 2542, storyId: 7, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It was small and gray.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. was is a verb. small, gray are adjectives." },
-            { id: 2543, storyId: 8, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Emma had a part in the school play.", answers: {0: "noun", 1: "verb", 6: "noun", 7: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Emma, school are nouns. had, play are verbs." },
-            { id: 2544, storyId: 8, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "She had to sing a song.", answers: {0: "noun", 1: "verb", 3: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "She is a noun. had, sing are verbs." },
-            { id: 2545, storyId: 9, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Tina was a small turtle who lived by a pond.", answers: {0: "noun", 1: "verb", 3: "adjective", 6: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Tina is a noun. was, lived are verbs. small is an adjective." },
-            { id: 2546, storyId: 9, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "She wanted to climb the big rock near the water.", answers: {0: "noun", 1: "verb", 3: "verb", 5: "adjective", 6: "noun", 9: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "She, rock, water are nouns. wanted, climb are verbs. big is an adjective." },
             { id: 2547, storyId: 10, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Every Sunday morning, Lily woke up to a wonderful smell.", answers: {1: "noun", 2: "noun", 3: "noun", 4: "verb", 8: "adjective", 9: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Sunday, morning, Lily, smell are nouns. woke is a verb. wonderful is an adjective." },
             { id: 2548, storyId: 10, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Grandpa was making his famous pancakes in the kitchen.", answers: {0: "noun", 1: "verb", 2: "verb", 4: "adjective", 5: "noun", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Grandpa, pancakes, kitchen are nouns. was, making are verbs. famous is an adjective." },
             { id: 2549, storyId: 11, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Every day, she gave one plant regular tap water.", answers: {1: "noun", 2: "noun", 3: "verb", 5: "verb", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "day, she, water are nouns. gave, plant are verbs." },
             { id: 2550, storyId: 11, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The second plant got water mixed with sugar.", answers: {2: "verb", 3: "verb", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "water is a noun. plant, got are verbs." },
             { id: 2551, storyId: 12, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Candy wrappers, plastic bottles, and old newspapers were scattered everywhere.", answers: {0: "noun", 1: "noun", 2: "noun", 3: "noun", 5: "adjective", 6: "noun", 7: "verb", 8: "verb", 9: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "Candy, wrappers, plastic, bottles, newspapers are nouns. were, scattered are verbs. old is an adjective. everywhere is an adverb." },
             { id: 2552, storyId: 12, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "He decided he wanted to do something about it.", answers: {0: "noun", 2: "noun", 3: "verb", 5: "verb", 6: "noun", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "He, he, something, it are nouns. wanted, do are verbs." },
-            { id: 2553, storyId: 13, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Her name is Sara.", answers: {0: "noun", 1: "noun", 2: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Her, name, Sara are nouns. is is a verb." },
-            { id: 2554, storyId: 13, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sara is big and tan.", answers: {0: "noun", 1: "verb", 2: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Sara is a noun. is is a verb. big is an adjective." },
-            { id: 2555, storyId: 14, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Fatima went to Souq Waqif with her grandmother.", answers: {0: "noun", 1: "verb", 3: "noun", 4: "noun", 6: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Fatima, Souq, Waqif, her are nouns. went is a verb." },
-            { id: 2556, storyId: 14, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The souq is a big market in Qatar.", answers: {2: "verb", 4: "adjective", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Qatar is a noun. is is a verb. big is an adjective." },
-            { id: 2557, storyId: 15, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Yusuf woke up very early on Saturday morning.", answers: {0: "noun", 1: "verb", 4: "adverb", 6: "noun", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "Yusuf, Saturday, morning are nouns. woke is a verb. early is an adverb." },
-            { id: 2558, storyId: 15, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Today was a special day for his family.", answers: {0: "adverb", 1: "verb", 3: "adjective", 4: "noun", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "day, family are nouns. was is a verb. special is an adjective. Today is an adverb." },
             { id: 2559, storyId: 16, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "At the show, many falcons sat on wooden perches.", answers: {2: "verb", 5: "verb", 7: "adjective"}, hint: "Look for action words (verbs) and describing words (adjectives).", explanation: "show, sat are verbs. wooden is an adjective." },
             { id: 2560, storyId: 16, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Khalid could see its sharp golden eyes.", answers: {0: "noun", 2: "verb", 4: "adjective", 5: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Khalid is a noun. see is a verb. sharp, golden are adjectives." },
             { id: 2561, storyId: 17, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "On a cold winter evening, Amira looked out her window.", answers: {0: "noun", 2: "adjective", 3: "noun", 4: "noun", 5: "noun", 6: "verb", 8: "noun", 9: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "cold is an adjective. winter, evening, Amira, her, window are nouns. looked is a verb." },
             { id: 2562, storyId: 17, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "She saw their elderly neighbor Mrs.", answers: {0: "noun", 1: "verb", 3: "adverb", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "She, Mrs are nouns. saw is a verb. elderly is an adverb." },
             { id: 2563, storyId: 18, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The work was very hard and sometimes dangerous.", answers: {1: "noun", 2: "verb", 4: "adjective", 6: "adverb", 7: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "work is a noun. was is a verb. hard, dangerous are adjectives. sometimes is an adverb." },
             { id: 2564, storyId: 18, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Divers had to watch out for jellyfish and strong currents.", answers: {0: "noun", 1: "verb", 3: "verb", 8: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Divers is a noun. had, watch are verbs. strong is an adjective." },
-            { id: 2565, storyId: 19, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Mia saw a bird.", answers: {0: "noun", 1: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Mia, bird are nouns. saw is a verb." },
-            { id: 2566, storyId: 19, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It was small and blue.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. was is a verb. small, blue are adjectives." },
-            { id: 2567, storyId: 20, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It snowed all night long.", answers: {0: "noun", 3: "noun", 4: "adjective"}, hint: "Look for naming words (nouns) and describing words (adjectives).", explanation: "It, night are nouns. long is an adjective." },
-            { id: 2568, storyId: 20, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "In the morning, Kai ran outside to play.", answers: {2: "noun", 3: "noun", 4: "verb", 5: "adverb", 7: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "morning, Kai are nouns. ran, play are verbs. outside is an adverb." },
-            { id: 2569, storyId: 21, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They went to the store and bought wood and nails.", answers: {0: "noun", 1: "verb", 4: "noun", 6: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "They, store are nouns. went, bought are verbs." },
-            { id: 2570, storyId: 21, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Every weekend, they worked together in the backyard.", answers: {2: "noun", 3: "verb", 4: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "they is a noun. worked is a verb. together is an adverb." },
             { id: 2571, storyId: 22, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Every Tuesday, Noah walked to the library after school.", answers: {1: "noun", 2: "noun", 3: "verb", 6: "noun", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Tuesday, Noah, library, school are nouns. walked is a verb." },
             { id: 2572, storyId: 22, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It had a golden cover with sparkly stars.", answers: {0: "noun", 1: "verb", 3: "adjective", 6: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "It is a noun. had is a verb. golden is an adjective. sparkly is an adverb." },
             { id: 2573, storyId: 23, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Her team had practiced all season for this moment.", answers: {0: "noun", 1: "noun", 2: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Her, team are nouns. had is a verb." },
             { id: 2574, storyId: 23, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They had won seven games and lost only two.", answers: {0: "noun", 1: "verb", 2: "verb", 6: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "They is a noun. had, won, lost are verbs." },
             { id: 2575, storyId: 24, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "But one cold November morning, everything changed.", answers: {2: "adjective", 3: "noun", 4: "noun", 5: "noun"}, hint: "Look for naming words (nouns) and describing words (adjectives).", explanation: "November, morning, everything are nouns. cold is an adjective." },
             { id: 2576, storyId: 24, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "After two hours of searching, Carlos noticed something unusual.", answers: {5: "noun", 6: "verb", 7: "noun", 8: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Carlos, something are nouns. noticed is a verb. unusual is an adjective." },
-            { id: 2577, storyId: 25, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Bees are small insects.", answers: {0: "noun", 1: "verb", 2: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Bees is a noun. are is a verb. small is an adjective." },
-            { id: 2578, storyId: 25, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Bees help plants grow by spreading pollen.", answers: {0: "noun", 1: "noun", 2: "noun", 3: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Bees, help, plants are nouns. grow is a verb." },
-            { id: 2579, storyId: 26, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It gives Earth light and heat.", answers: {0: "noun", 1: "verb", 2: "noun", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It, Earth are nouns. gives is a verb. light is an adjective." },
-            { id: 2580, storyId: 26, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Without the Sun, our planet would be dark and cold.", answers: {0: "noun", 2: "noun", 4: "noun", 6: "verb", 7: "adjective", 9: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Without, Sun, planet are nouns. be is a verb. dark, cold are adjectives." },
-            { id: 2581, storyId: 27, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Dolphins are not fish.", answers: {0: "noun", 1: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Dolphins, fish are nouns. are is a verb." },
-            { id: 2582, storyId: 27, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They are mammals that live in the ocean.", answers: {0: "noun", 1: "verb", 4: "verb", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "They, ocean are nouns. are, live are verbs." },
-            { id: 2583, storyId: 28, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The Sahara Desert in Africa is the biggest hot desert.", answers: {1: "noun", 2: "noun", 4: "noun", 5: "verb", 8: "adjective", 9: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Sahara, Desert, Africa, desert are nouns. is is a verb. hot is an adjective." },
-            { id: 2584, storyId: 28, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It is almost as large as the United States.", answers: {0: "noun", 1: "verb", 2: "adverb", 4: "adjective", 7: "noun", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "It, United, States are nouns. is is a verb. large is an adjective. almost is an adverb." },
             { id: 2585, storyId: 29, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "This process is called the water cycle.", answers: {2: "verb", 3: "verb", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "water is a noun. is, called are verbs." },
             { id: 2586, storyId: 29, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It has four main stages: evaporation, condensation, precipitation, and collection.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. has is a verb. main is an adjective." },
             { id: 2587, storyId: 30, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Coral polyps build hard skeletons around themselves for protection.", answers: {0: "noun", 2: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Coral is a noun. build is a verb. hard is an adjective." },
             { id: 2588, storyId: 30, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sadly, coral reefs are in danger.", answers: {0: "adverb", 1: "noun", 3: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "coral is a noun. are is a verb. Sadly is an adverb." },
-            { id: 2589, storyId: 31, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Hot melted rock called lava comes out.", answers: {0: "adjective", 1: "verb", 2: "noun", 3: "verb", 5: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "rock is a noun. melted, called, comes are verbs. Hot is an adjective." },
-            { id: 2590, storyId: 31, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Others are very loud.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Others is a noun. are is a verb. loud is an adjective." },
-            { id: 2591, storyId: 32, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sharks live in the ocean.", answers: {0: "noun", 1: "verb", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Sharks, ocean are nouns. live is a verb." },
-            { id: 2592, storyId: 32, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They have sharp teeth.", answers: {0: "noun", 1: "verb", 2: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "They is a noun. have is a verb. sharp is an adjective." },
-            { id: 2593, storyId: 33, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Robots are machines that can do many jobs.", answers: {0: "noun", 1: "verb", 5: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Robots is a noun. are, do are verbs." },
-            { id: 2594, storyId: 33, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "There are even robots that clean houses.", answers: {0: "adverb", 1: "verb", 5: "verb"}, hint: "Look for action words (verbs) and words that tell how or when (adverbs).", explanation: "are, clean are verbs. There is an adverb." },
             { id: 2595, storyId: 34, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Butterflies start life as tiny eggs.", answers: {0: "noun", 1: "verb", 2: "noun", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Butterflies, life are nouns. start is a verb. tiny is an adjective." },
             { id: 2596, storyId: 34, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Then it makes a cocoon around itself.", answers: {0: "adverb", 1: "noun", 2: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "it is a noun. makes is a verb. Then is an adverb." },
             { id: 2597, storyId: 35, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Rainforests are thick forests that get lots of rain.", answers: {0: "noun", 1: "verb", 2: "adjective", 5: "verb", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Rainforests, rain are nouns. are, get are verbs. thick is an adjective." },
@@ -11597,50 +11389,12 @@ var questions = [
             { id: 2609, storyId: 41, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "However, there is hope.", answers: {0: "noun", 1: "adverb", 2: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "However, hope are nouns. is is a verb. there is an adverb." },
             { id: 2610, storyId: 42, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "This movement from one place to another is called migration.", answers: {4: "noun", 7: "verb", 8: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "place is a noun. is, called are verbs." },
             { id: 2611, storyId: 42, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Birds are the most famous migrators.", answers: {0: "noun", 1: "verb", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Birds is a noun. are is a verb. famous is an adjective." },
-            { id: 2612, storyId: 43, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It has big wheels.", answers: {0: "noun", 1: "verb", 2: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. has is a verb. big is an adjective." },
-            { id: 2613, storyId: 44, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The rocket is fast.", answers: {1: "noun", 2: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "rocket is a noun. is is a verb. fast is an adjective." },
-            { id: 2614, storyId: 44, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It goes to space.", answers: {0: "noun", 1: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "It, space are nouns. goes is a verb." },
-            { id: 2615, storyId: 45, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "I have a robot.", answers: {0: "noun", 1: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "I, robot are nouns. have is a verb." },
-            { id: 2616, storyId: 45, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "My robot can walk.", answers: {0: "noun", 1: "noun", 3: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "My, robot are nouns. walk is a verb." },
-            { id: 2617, storyId: 46, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "I see a car.", answers: {0: "noun", 1: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "I, car are nouns. see is a verb." },
-            { id: 2618, storyId: 46, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The car is blue.", answers: {1: "noun", 2: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "car is a noun. is is a verb. blue is an adjective." },
-            { id: 2619, storyId: 47, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Jake has a new skateboard.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Jake is a noun. has is a verb. new is an adjective." },
-            { id: 2620, storyId: 47, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It is black and red.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. is is a verb. black, red are adjectives." },
-            { id: 2621, storyId: 48, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Long ago, dinosaurs lived on Earth.", answers: {0: "adjective", 3: "verb", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Earth is a noun. lived is a verb. Long is an adjective." },
-            { id: 2622, storyId: 48, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They were very big.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "They is a noun. were is a verb. big is an adjective." },
-            { id: 2623, storyId: 49, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "He wanted to win the big tournament on Saturday.", answers: {0: "noun", 1: "verb", 3: "verb", 5: "adjective", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "He, Saturday are nouns. wanted, win are verbs. big is an adjective." },
-            { id: 2624, storyId: 49, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "He learned all the best moves and secret levels.", answers: {0: "noun", 1: "verb", 4: "adjective", 5: "verb", 7: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "He, secret are nouns. learned, moves are verbs. best is an adjective." },
-            { id: 2625, storyId: 50, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Rockets are powerful machines that can go to space.", answers: {0: "noun", 1: "verb", 2: "adjective", 6: "verb", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Rockets, space are nouns. are, go are verbs. powerful is an adjective." },
-            { id: 2626, storyId: 50, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They burn fuel very fast to create hot gases.", answers: {0: "noun", 4: "adjective", 6: "verb", 7: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "They is a noun. create is a verb. fast, hot are adjectives." },
             { id: 2627, storyId: 51, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The other team was strong and fast.", answers: {2: "noun", 3: "verb", 4: "adjective", 6: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "team is a noun. was is a verb. strong, fast are adjectives." },
             { id: 2628, storyId: 51, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Hassan kicked the ball perfectly.", answers: {0: "noun", 1: "verb", 3: "noun", 4: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "Hassan, ball are nouns. kicked is a verb. perfectly is an adverb." },
             { id: 2629, storyId: 52, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Next came the RAM modules, clicking firmly into place.", answers: {0: "adjective", 1: "verb", 3: "noun", 6: "adverb", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "RAM, place are nouns. came is a verb. Next is an adjective. firmly is an adverb." },
             { id: 2630, storyId: 52, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Kevin switched it on and pressed the button again.", answers: {0: "noun", 2: "noun", 7: "noun", 8: "adverb"}, hint: "Look for naming words (nouns) and words that tell how or when (adverbs).", explanation: "Kevin, it, button are nouns. again is an adverb." },
-            { id: 2631, storyId: 55, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The car is fast.", answers: {1: "noun", 2: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "car is a noun. is is a verb. fast is an adjective." },
-            { id: 2632, storyId: 55, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Police cars are important.", answers: {0: "noun", 2: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Police is a noun. are is a verb. important is an adjective." },
-            { id: 2633, storyId: 56, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "I have a toy box.", answers: {0: "noun", 1: "verb", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "I, box are nouns. have is a verb." },
-            { id: 2634, storyId: 56, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "I put toys in it.", answers: {0: "noun", 1: "verb", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "I, it are nouns. put is a verb." },
-            { id: 2635, storyId: 57, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It flies up high.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. flies is a verb. high is an adjective." },
-            { id: 2636, storyId: 58, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Inside the fort, it is cozy.", answers: {0: "adverb", 3: "noun", 4: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "it is a noun. is is a verb. Inside is an adverb." },
-            { id: 2637, storyId: 58, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They bring books and toys inside.", answers: {0: "noun", 1: "verb", 5: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "They is a noun. bring is a verb. inside is an adverb." },
-            { id: 2638, storyId: 59, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Firefighters teach us about fire safety.", answers: {0: "noun", 1: "verb", 2: "noun", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Firefighters, us, fire are nouns. teach is a verb." },
-            { id: 2639, storyId: 59, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Stop, drop, and roll if your clothes catch fire.", answers: {0: "verb", 1: "verb", 7: "verb", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "fire is a noun. Stop, drop, catch are verbs." },
-            { id: 2640, storyId: 60, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sam lost his favorite toy car.", answers: {0: "noun", 1: "verb", 3: "adjective", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Sam, car are nouns. lost is a verb. favorite is an adjective." },
-            { id: 2641, storyId: 60, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Finally, Sam found it in the backyard.", answers: {0: "adverb", 1: "noun", 2: "verb", 3: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "Sam, it are nouns. found is a verb. Finally is an adverb." },
-            { id: 2642, storyId: 61, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Bees are amazing insects.", answers: {0: "noun", 1: "verb", 2: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Bees is a noun. are is a verb. amazing is an adjective." },
-            { id: 2643, storyId: 61, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They fly from flower to flower collecting nectar.", answers: {0: "noun", 1: "verb", 3: "noun", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "They, flower, flower are nouns. fly is a verb." },
-            { id: 2644, storyId: 62, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "In the morning, big puddles were everywhere.", answers: {2: "noun", 3: "adjective", 5: "verb", 6: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "morning is a noun. were is a verb. big is an adjective. everywhere is an adverb." },
-            { id: 2645, storyId: 62, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Mia put on her rain boots.", answers: {0: "noun", 1: "verb", 3: "noun", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Mia, her, rain are nouns. put is a verb." },
-            { id: 2646, storyId: 63, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sofia and her brother decided to open a lemonade stand.", answers: {0: "noun", 2: "noun", 6: "verb", 9: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Sofia, her are nouns. open, stand are verbs." },
-            { id: 2647, storyId: 63, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They drew a colorful sign.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "They is a noun. drew is a verb. colorful is an adjective." },
-            { id: 2648, storyId: 64, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Ben was afraid of the deep end of the pool.", answers: {0: "noun", 1: "verb", 2: "adjective", 5: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Ben is a noun. was is a verb. afraid, deep are adjectives." },
-            { id: 2649, storyId: 64, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "His swimming teacher was patient and kind.", answers: {0: "noun", 2: "noun", 3: "verb", 4: "adjective", 6: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "His, teacher are nouns. was is a verb. patient, kind are adjectives." },
             { id: 2650, storyId: 65, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Recycling is one way we can help planet Earth.", answers: {0: "noun", 1: "verb", 4: "noun", 6: "noun", 7: "noun", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Recycling, we, help, planet, Earth are nouns. is is a verb." },
             { id: 2651, storyId: 65, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Paper can be recycled into new notebooks.", answers: {0: "noun", 2: "verb", 5: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Paper is a noun. be is a verb. new is an adjective." },
-            { id: 2652, storyId: 66, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Our solar system has eight planets that orbit the Sun.", answers: {0: "noun", 2: "noun", 3: "verb", 9: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Our, system, Sun are nouns. has is a verb." },
-            { id: 2653, storyId: 66, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Venus is the hottest planet.", answers: {0: "noun", 1: "verb", 4: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Venus, planet are nouns. is is a verb." },
-            { id: 2654, storyId: 67, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Aisha wanted to test which paper towel was strongest.", answers: {0: "noun", 1: "verb", 3: "noun", 7: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Aisha, test are nouns. wanted, was are verbs." },
-            { id: 2655, storyId: 67, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "She wet each brand with the same amount of water.", answers: {0: "noun", 1: "adjective", 6: "adjective", 9: "noun"}, hint: "Look for naming words (nouns) and describing words (adjectives).", explanation: "She, water are nouns. wet, same are adjectives." },
             { id: 2656, storyId: 68, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They had sixty minutes to solve puzzles and escape.", answers: {0: "noun", 1: "verb", 5: "verb", 8: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "They is a noun. had, solve, escape are verbs." },
             { id: 2657, storyId: 68, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "The first room was dimly lit with science equipment everywhere.", answers: {1: "adjective", 2: "noun", 3: "verb", 4: "adverb", 8: "noun", 9: "adverb"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives) and words that tell how or when (adverbs).", explanation: "room, equipment are nouns. was is a verb. first is an adjective. dimly, everywhere are adverbs." },
             { id: 2658, storyId: 69, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Today his friend Jake convinced him he was ready.", answers: {0: "adverb", 2: "noun", 3: "noun", 5: "noun", 6: "noun", 7: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "friend, Jake, him, he are nouns. was is a verb. Today is an adverb." },
@@ -11689,13 +11443,6 @@ var questions = [
             { id: 2701, storyId: 97, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Eight minutes later, they reached orbit.", answers: {0: "noun", 2: "adverb", 3: "noun", 4: "verb"}, hint: "Look for naming words (nouns) and action words (verbs) and words that tell how or when (adverbs).", explanation: "Eight, they are nouns. reached is a verb. later is an adverb." },
             { id: 2702, storyId: 98, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Doctors began washing their hands and sterilizing their tools.", answers: {0: "noun", 1: "verb", 4: "noun", 6: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Doctors, hands are nouns. began, sterilizing are verbs." },
             { id: 2703, storyId: 98, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Modern medicine continues to advance with amazing technology.", answers: {0: "adjective", 1: "noun", 2: "verb", 5: "adjective", 6: "noun"}, hint: "Look for naming words (nouns), action words (verbs), and describing words (adjectives).", explanation: "medicine, technology are nouns. continues is a verb. Modern, amazing are adjectives." },
-            { id: 2704, storyId: 99, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It is black and white.", answers: {0: "noun", 1: "verb", 2: "adjective", 4: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "It is a noun. is is a verb. black, white are adjectives." },
-            { id: 2705, storyId: 100, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Your brain is in your head.", answers: {0: "noun", 1: "noun", 2: "verb", 5: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Your, brain, head are nouns. is is a verb." },
-            { id: 2706, storyId: 100, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "It helps you think.", answers: {0: "noun", 1: "verb", 2: "noun", 3: "verb"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "It, you are nouns. helps, think are verbs." },
-            { id: 2707, storyId: 101, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Making a paper airplane is easy and fun.", answers: {0: "verb", 3: "noun", 4: "verb", 5: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "airplane is a noun. Making, is are verbs. easy is an adjective." },
-            { id: 2708, storyId: 101, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Fold it in half the long way.", answers: {0: "noun", 1: "noun", 5: "adjective"}, hint: "Look for naming words (nouns) and describing words (adjectives).", explanation: "Fold, it are nouns. long is an adjective." },
-            { id: 2709, storyId: 102, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Sleep is very important for your body.", answers: {0: "verb", 1: "verb", 3: "adjective", 6: "noun"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "body is a noun. Sleep, is are verbs. important is an adjective." },
-            { id: 2710, storyId: 102, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Your body grows and heals while you rest.", answers: {0: "noun", 1: "noun", 2: "verb", 4: "verb", 6: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Your, body, you are nouns. grows, heals are verbs." },
             { id: 2711, storyId: 103, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "They were very simple with basic graphics.", answers: {0: "noun", 1: "verb", 3: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "They is a noun. were is a verb. simple is an adjective." },
             { id: 2712, storyId: 103, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Kids went to arcades to play games on big machines.", answers: {0: "noun", 1: "verb", 5: "verb", 8: "adjective"}, hint: "Look for naming words (nouns) and action words (verbs) and describing words (adjectives).", explanation: "Kids is a noun. went, play are verbs. big is an adjective." },
             { id: 2713, storyId: 104, category: "grammar", type: "highlight", question: "Identify the parts of speech in this sentence from the story:", sentence: "Dolphins are some of the smartest animals on Earth.", answers: {0: "noun", 1: "verb", 8: "noun"}, hint: "Look for naming words (nouns) and action words (verbs).", explanation: "Dolphins, Earth are nouns. are is a verb." },
@@ -13476,4 +13223,373 @@ var questions = [
             { id: 4544, storyId: 289, category: "author_purpose", type: "multiple", question: "Why does the author emphasize that each step of backsliding is 'individually justifiable'?", options: ["To praise the leaders who take these steps", "To explain why democratic backsliding is so difficult to resist--each individual action appears legitimate, making it hard to identify the collectively antidemocratic pattern", "To argue that these steps are actually beneficial", "To suggest that democratic norms don't matter"], correct: 1, hint: "If each step seems reasonable on its own, when do you sound the alarm?", explanation: "By emphasizing individual justifiability, the author explains backsliding's insidious power--opponents can't point to a single illegitimate act, only to a pattern whose collective effect is antidemocratic!" },
             { id: 4545, storyId: 289, category: "text_structure", type: "multiple", question: "How is 'Democratic Backsliding' organized?", options: ["By contrasting post-Cold War optimism with current reality, describing the mechanisms of backsliding, analyzing its causes, and examining implications for global order", "As a biography of a specific world leader", "As a chronological history of every democracy ever established", "As a debate between two political scientists"], correct: 0, hint: "Notice the progression from historical context to mechanisms to causes to implications.", explanation: "The passage builds from the collapse of post-Cold War democratic optimism, through the mechanisms of gradual erosion, analysis of enabling conditions, and broader implications for international democratic order!" },
             { id: 4546, storyId: 289, category: "grammar", type: "highlight", question: "Identify the parts of speech for the highlighted words.", sentence: "Democratic backsliding has become a global phenomenon affecting established democracies.", answers: {"0": "adjective", "1": "noun", "3": "verb", "5": "adjective", "6": "noun", "7": "verb", "8": "adjective"}, hint: "Look for describing words, things, and actions.", explanation: "Democratic is an adjective (describes backsliding), backsliding is a noun (thing), become is a verb (linking verb), global is an adjective (describes phenomenon), phenomenon is a noun (thing), affecting is a verb (action), and established is an adjective (describes democracies)!" },
+            // aa–C: eight short, story-matched questions, each with two choices.
+            {"id": 50010, "storyId": 1, "category": "story", "type": "multiple", "question": "Who is the dog?", "options": ["Max", "Leo"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Max.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50011, "storyId": 1, "category": "inference", "type": "multiple", "question": "Why does Max sit near sad Mom?", "options": ["To make Mom sad", "To help Mom feel better"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To help Mom feel better.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50012, "storyId": 1, "category": "theme", "type": "multiple", "question": "What does Max do for his family?", "options": ["He helps them", "He hides from them"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He helps them.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50013, "storyId": 1, "category": "vocab", "type": "multiple", "question": "What is a newspaper?", "options": ["A toy", "Paper with news"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Paper with news.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50014, "storyId": 1, "category": "context", "type": "multiple", "question": "Who gets the newspaper?", "options": ["Dad", "The kids"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Dad.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50015, "storyId": 1, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["A lost bird", "A helpful dog"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A helpful dog.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50016, "storyId": 1, "category": "phonics", "type": "multiple", "question": "Which word rhymes with day?", "options": ["say", "dog"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Day and say have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50017, "storyId": 1, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["dog", "plays"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Plays is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50020, "storyId": 2, "category": "story", "type": "multiple", "question": "Who is new at school?", "options": ["Anna", "Mia"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Anna.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50021, "storyId": 2, "category": "inference", "type": "multiple", "question": "Why does Anna feel better?", "options": ["Anna loses her books", "Mia is her friend"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Mia is her friend.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50022, "storyId": 2, "category": "theme", "type": "multiple", "question": "What helps Anna feel happy?", "options": ["Making a friend", "Being alone"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Making a friend.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50023, "storyId": 2, "category": "vocab", "type": "multiple", "question": "What does shy mean?", "options": ["Loud and ready to talk", "Nervous with new people"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Nervous with new people.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50024, "storyId": 2, "category": "context", "type": "multiple", "question": "Where do Anna and Mia talk?", "options": ["At lunch", "At a park"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "At lunch.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50025, "storyId": 2, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Anna learns to swim", "Anna makes a friend"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Anna makes a friend.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50026, "storyId": 2, "category": "phonics", "type": "multiple", "question": "Which word rhymes with day?", "options": ["say", "book"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Day and say have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50027, "storyId": 2, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["books", "talked"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Talked is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50030, "storyId": 3, "category": "story", "type": "multiple", "question": "What do Grandma and the child plant?", "options": ["Seeds", "Stones"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Seeds.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50031, "storyId": 3, "category": "inference", "type": "multiple", "question": "Why does the child shout Look?", "options": ["The plants are gone", "The plants are growing"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "The plants are growing.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50032, "storyId": 3, "category": "theme", "type": "multiple", "question": "What helps the garden grow?", "options": ["Working together", "Never watering it"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Working together.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50033, "storyId": 3, "category": "vocab", "type": "multiple", "question": "What does proud mean?", "options": ["Afraid of what you did", "Happy with what you did"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Happy with what you did.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50034, "storyId": 3, "category": "context", "type": "multiple", "question": "What comes out of the dirt?", "options": ["Green plants", "Blue toys"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Green plants.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50035, "storyId": 3, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Buying food at a store", "Growing a garden together"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Growing a garden together.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50036, "storyId": 3, "category": "phonics", "type": "multiple", "question": "Which word rhymes with green?", "options": ["seen", "dirt"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Green and seen have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50037, "storyId": 3, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["seeds", "planted"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Planted is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50040, "storyId": 4, "category": "story", "type": "multiple", "question": "What does Ben use for his fort?", "options": ["A box", "A bike"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A box.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50041, "storyId": 4, "category": "inference", "type": "multiple", "question": "Why does Ben stay inside?", "options": ["It is sunny", "It is raining"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It is raining.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50042, "storyId": 4, "category": "theme", "type": "multiple", "question": "How does Ben have fun?", "options": ["He makes a fort", "He does nothing"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He makes a fort.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50043, "storyId": 4, "category": "vocab", "type": "multiple", "question": "What does cozy mean?", "options": ["Cold and wet", "Warm and comfortable"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Warm and comfortable.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50044, "storyId": 4, "category": "context", "type": "multiple", "question": "What does Ben put in the fort?", "options": ["Pillows and toy animals", "Water and mud"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Pillows and toy animals.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50045, "storyId": 4, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Ben swims outside", "Ben makes a fort inside"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Ben makes a fort inside.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50046, "storyId": 4, "category": "phonics", "type": "multiple", "question": "Which word rhymes with day?", "options": ["say", "box"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Day and say have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50047, "storyId": 4, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["box", "plays"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Plays is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50050, "storyId": 5, "category": "story", "type": "multiple", "question": "What does Jada learn to ride?", "options": ["A bike", "A boat"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A bike.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50051, "storyId": 5, "category": "inference", "type": "multiple", "question": "Why does Jada try again?", "options": ["Dad tells her to stop", "Dad tells her to keep trying"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Dad tells her to keep trying.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50052, "storyId": 5, "category": "theme", "type": "multiple", "question": "What helps Jada learn?", "options": ["Practice", "Giving up"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Practice.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50053, "storyId": 5, "category": "vocab", "type": "multiple", "question": "What does quit mean?", "options": ["Try again", "Stop trying"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Stop trying.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50054, "storyId": 5, "category": "context", "type": "multiple", "question": "What does Jada use to move the bike?", "options": ["Her feet on the pedals", "Her hands on the ground"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Her feet on the pedals.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50055, "storyId": 5, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Jada loses her bike", "Jada learns to ride a bike"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Jada learns to ride a bike.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50056, "storyId": 5, "category": "phonics", "type": "multiple", "question": "Which word rhymes with bike?", "options": ["like", "bed"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Bike and like have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50057, "storyId": 5, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["bike", "ride"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Ride is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50060, "storyId": 6, "category": "story", "type": "multiple", "question": "What food does Marco have?", "options": ["Cookies", "Apples"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Cookies.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50061, "storyId": 6, "category": "inference", "type": "multiple", "question": "Why does Leo feel sad?", "options": ["He has too much lunch", "He has no lunch"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He has no lunch.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50062, "storyId": 6, "category": "theme", "type": "multiple", "question": "What kind thing does Marco do?", "options": ["He shares food", "He hides food"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He shares food.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50063, "storyId": 6, "category": "vocab", "type": "multiple", "question": "What does sharing mean?", "options": ["Keeping it all", "Giving some to others"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Giving some to others.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50064, "storyId": 6, "category": "context", "type": "multiple", "question": "How does Leo feel after Marco shares?", "options": ["Happy", "Sad"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Happy.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50065, "storyId": 6, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Marco eats alone", "Marco shares with Leo"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Marco shares with Leo.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50066, "storyId": 6, "category": "phonics", "type": "multiple", "question": "Which word rhymes with big?", "options": ["pig", "box"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Big and pig have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50067, "storyId": 6, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["cookies", "ate"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Ate is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50070, "storyId": 7, "category": "story", "type": "multiple", "question": "What animal does Sam find?", "options": ["A kitten", "A puppy"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A kitten.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50071, "storyId": 7, "category": "inference", "type": "multiple", "question": "Why is the kitten happy?", "options": ["Sam leaves it alone", "Sam gives it milk"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sam gives it milk.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50072, "storyId": 7, "category": "theme", "type": "multiple", "question": "What kind thing does Sam do?", "options": ["He helps a lost kitten", "He scares a lost kitten"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He helps a lost kitten.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50073, "storyId": 7, "category": "vocab", "type": "multiple", "question": "What does small mean?", "options": ["Big", "Little"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Little.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50074, "storyId": 7, "category": "context", "type": "multiple", "question": "What does Sam name the kitten?", "options": ["Misty", "Max"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Misty.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50075, "storyId": 7, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Sam loses his dog", "Sam gives a kitten a home"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sam gives a kitten a home.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50076, "storyId": 7, "category": "phonics", "type": "multiple", "question": "Which word rhymes with Sam?", "options": ["jam", "sun"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Sam and jam have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50077, "storyId": 7, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["kitten", "saw"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Saw is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50080, "storyId": 8, "category": "story", "type": "multiple", "question": "What does Emma do in the play?", "options": ["She sings", "She swims"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "She sings.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50081, "storyId": 8, "category": "inference", "type": "multiple", "question": "Why does Emma feel brave?", "options": ["Her parents laugh at her", "Her parents smile at her"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Her parents smile at her.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50082, "storyId": 8, "category": "theme", "type": "multiple", "question": "Who helps Emma feel brave?", "options": ["Her family", "A dog"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Her family.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50083, "storyId": 8, "category": "vocab", "type": "multiple", "question": "What does nervous mean?", "options": ["Calm", "Worried"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Worried.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50084, "storyId": 8, "category": "context", "type": "multiple", "question": "What do people do after Emma sings?", "options": ["Clap", "Run away"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Clap.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50085, "storyId": 8, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Emma builds a house", "Emma sings in a school play"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Emma sings in a school play.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50086, "storyId": 8, "category": "phonics", "type": "multiple", "question": "Which word rhymes with song?", "options": ["long", "sun"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Song and long have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50087, "storyId": 8, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["song", "sing"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Sing is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50090, "storyId": 9, "category": "story", "type": "multiple", "question": "What does Tina want to climb?", "options": ["A rock", "A tree"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A rock.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50091, "storyId": 9, "category": "inference", "type": "multiple", "question": "Why do the turtles cheer?", "options": ["Tina stops trying", "Tina gets to the top"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Tina gets to the top.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50092, "storyId": 9, "category": "theme", "type": "multiple", "question": "What helps Tina reach the top?", "options": ["Trying again", "Giving up"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Trying again.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50093, "storyId": 9, "category": "vocab", "type": "multiple", "question": "What does cheered mean?", "options": ["Cried with sadness", "Shouted with joy"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Shouted with joy.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50094, "storyId": 9, "category": "context", "type": "multiple", "question": "Where does Tina live?", "options": ["By a pond", "In a house"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "By a pond.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50095, "storyId": 9, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Tina learns to fly", "Tina keeps trying to climb"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Tina keeps trying to climb.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50096, "storyId": 9, "category": "phonics", "type": "multiple", "question": "Which word rhymes with rock?", "options": ["sock", "pond"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Rock and sock have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50097, "storyId": 9, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["rock", "climb"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Climb is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50130, "storyId": 13, "category": "story", "type": "multiple", "question": "What animal does Jamal have?", "options": ["A camel", "A cat"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A camel.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50131, "storyId": 13, "category": "inference", "type": "multiple", "question": "Why does Jamal give Sara water?", "options": ["Sara needs to paint", "Sara needs to drink"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sara needs to drink.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50132, "storyId": 13, "category": "theme", "type": "multiple", "question": "How does Jamal treat Sara?", "options": ["Like a friend", "Like an enemy"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Like a friend.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50133, "storyId": 13, "category": "vocab", "type": "multiple", "question": "What does big mean?", "options": ["Small", "Large"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Large.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50134, "storyId": 13, "category": "context", "type": "multiple", "question": "What is the camel called?", "options": ["Sara", "Misty"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sara.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50135, "storyId": 13, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Jamal finds a bird", "Jamal cares for his camel"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Jamal cares for his camel.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50136, "storyId": 13, "category": "phonics", "type": "multiple", "question": "Which word rhymes with big?", "options": ["pig", "pet"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Big and pig have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50137, "storyId": 13, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["camel", "drinks"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Drinks is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50140, "storyId": 14, "category": "story", "type": "multiple", "question": "Who goes to the market with Fatima?", "options": ["Grandmother", "Her teacher"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Grandmother.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50141, "storyId": 14, "category": "inference", "type": "multiple", "question": "Why does Fatima enjoy the trip?", "options": ["She is all alone", "She is with Grandmother"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "She is with Grandmother.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50142, "storyId": 14, "category": "theme", "type": "multiple", "question": "What does Fatima like doing?", "options": ["Spending time with family", "Staying away from family"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Spending time with family.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50143, "storyId": 14, "category": "vocab", "type": "multiple", "question": "What is a market?", "options": ["A place to swim", "A place to buy things"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A place to buy things.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50144, "storyId": 14, "category": "context", "type": "multiple", "question": "What color is the scarf?", "options": ["Purple", "Green"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Purple.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50145, "storyId": 14, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["A trip to a beach", "A trip to a market"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A trip to a market.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50146, "storyId": 14, "category": "phonics", "type": "multiple", "question": "Which word rhymes with tea?", "options": ["see", "cup"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Tea and see have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50147, "storyId": 14, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["scarf", "sat"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Sat is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50150, "storyId": 15, "category": "story", "type": "multiple", "question": "Where does the family have a picnic?", "options": ["At the park", "At school"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "At the park.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50151, "storyId": 15, "category": "inference", "type": "multiple", "question": "Why is Yusuf happy?", "options": ["His family leaves him alone", "His family is together"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "His family is together.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50152, "storyId": 15, "category": "theme", "type": "multiple", "question": "What makes this day special?", "options": ["Time with family", "Time alone"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Time with family.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50153, "storyId": 15, "category": "vocab", "type": "multiple", "question": "What is a gift?", "options": ["A game", "A present"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A present.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50154, "storyId": 15, "category": "context", "type": "multiple", "question": "What color is Yusuf's shirt?", "options": ["Blue", "Red"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Blue.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50155, "storyId": 15, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["A boy misses his family", "A family gets together"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A family gets together.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50156, "storyId": 15, "category": "phonics", "type": "multiple", "question": "Which word rhymes with blue?", "options": ["shoe", "shirt"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Blue and shoe have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50157, "storyId": 15, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["shirt", "hugged"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Hugged is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50190, "storyId": 19, "category": "story", "type": "multiple", "question": "What color is the bird?", "options": ["Blue", "Red"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Blue.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50191, "storyId": 19, "category": "inference", "type": "multiple", "question": "Why does Mia wave goodbye?", "options": ["The bird goes to sleep", "The bird flies away"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "The bird flies away.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50192, "storyId": 19, "category": "theme", "type": "multiple", "question": "What does Mia enjoy?", "options": ["Seeing the bird", "Scaring the bird"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Seeing the bird.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50193, "storyId": 19, "category": "vocab", "type": "multiple", "question": "What does small mean?", "options": ["Big", "Little"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Little.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50194, "storyId": 19, "category": "context", "type": "multiple", "question": "Where does the bird sit?", "options": ["On a branch", "On a bed"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "On a branch.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50195, "storyId": 19, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Mia finds a red cat", "Mia sees a blue bird"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Mia sees a blue bird.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50196, "storyId": 19, "category": "phonics", "type": "multiple", "question": "Which word rhymes with blue?", "options": ["shoe", "bird"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Blue and shoe have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50197, "storyId": 19, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["bird", "sang"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Sang is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50200, "storyId": 20, "category": "story", "type": "multiple", "question": "What does Kai build?", "options": ["A snowman", "A fort"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A snowman.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50201, "storyId": 20, "category": "inference", "type": "multiple", "question": "Why does Kai want cold weather?", "options": ["So the snowman will melt", "So the snowman will stay"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "So the snowman will stay.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50202, "storyId": 20, "category": "theme", "type": "multiple", "question": "Who helps Kai make the snowman?", "options": ["Mom and Dad", "A teacher"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Mom and Dad.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50203, "storyId": 20, "category": "vocab", "type": "multiple", "question": "What does melt mean?", "options": ["Turn into stone", "Turn into water"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Turn into water.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50204, "storyId": 20, "category": "context", "type": "multiple", "question": "What is the snowman's nose?", "options": ["A carrot", "A banana"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A carrot.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50205, "storyId": 20, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Kai plants a garden", "Kai makes a snowman"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Kai makes a snowman.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50206, "storyId": 20, "category": "phonics", "type": "multiple", "question": "Which word rhymes with hat?", "options": ["cat", "snow"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Hat and cat have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50207, "storyId": 20, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["hat", "rolled"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Rolled is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50210, "storyId": 21, "category": "story", "type": "multiple", "question": "What do Zara and Amir build?", "options": ["A treehouse", "A boat"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A treehouse.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50211, "storyId": 21, "category": "inference", "type": "multiple", "question": "Why is the treehouse special?", "options": ["They found it at school", "They worked together to make it"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "They worked together to make it.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50212, "storyId": 21, "category": "theme", "type": "multiple", "question": "What helps the family finish?", "options": ["Teamwork", "Doing nothing"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Teamwork.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50213, "storyId": 21, "category": "vocab", "type": "multiple", "question": "What is a ladder?", "options": ["A seat you sit on", "Steps you climb"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Steps you climb.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50214, "storyId": 21, "category": "context", "type": "multiple", "question": "What color are the walls?", "options": ["Blue", "Red"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Blue.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50215, "storyId": 21, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["A family buys a boat", "A family builds a treehouse"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A family builds a treehouse.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50216, "storyId": 21, "category": "phonics", "type": "multiple", "question": "Which word rhymes with blue?", "options": ["shoe", "wood"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Blue and shoe have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50217, "storyId": 21, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["wood", "painted"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Painted is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50250, "storyId": 25, "category": "story", "type": "multiple", "question": "Where do bees live?", "options": ["In hives", "In caves"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In hives.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50251, "storyId": 25, "category": "inference", "type": "multiple", "question": "Why do plants need bees?", "options": ["Bees eat all the plants", "Bees spread pollen"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Bees spread pollen.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50252, "storyId": 25, "category": "theme", "type": "multiple", "question": "How do bees help us?", "options": ["They help plants grow", "They stop plants growing"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "They help plants grow.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50253, "storyId": 25, "category": "vocab", "type": "multiple", "question": "What is a hive?", "options": ["A home for fish", "A home for bees"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A home for bees.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50254, "storyId": 25, "category": "context", "type": "multiple", "question": "What do bees make?", "options": ["Honey", "Milk"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Honey.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50255, "storyId": 25, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Dogs and their toys", "Bees and their jobs"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Bees and their jobs.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50256, "storyId": 25, "category": "phonics", "type": "multiple", "question": "Which word rhymes with bee?", "options": ["see", "bug"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Bee and see have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50257, "storyId": 25, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["honey", "grow"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Grow is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50260, "storyId": 26, "category": "story", "type": "multiple", "question": "What does the Sun give Earth?", "options": ["Light and heat", "Snow and ice"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Light and heat.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50261, "storyId": 26, "category": "inference", "type": "multiple", "question": "Why do plants need the Sun?", "options": ["Sunlight helps them hide", "Sunlight helps them grow"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sunlight helps them grow.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50262, "storyId": 26, "category": "theme", "type": "multiple", "question": "Why is the Sun important?", "options": ["It keeps Earth warm", "It keeps Earth cold"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It keeps Earth warm.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50263, "storyId": 26, "category": "vocab", "type": "multiple", "question": "What does heat mean?", "options": ["Cold", "Warmth"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Warmth.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50264, "storyId": 26, "category": "context", "type": "multiple", "question": "What is the Sun?", "options": ["A star", "A planet"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A star.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50265, "storyId": 26, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["How the Moon makes rain", "How the Sun helps Earth"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "How the Sun helps Earth.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50266, "storyId": 26, "category": "phonics", "type": "multiple", "question": "Which word rhymes with light?", "options": ["night", "sun"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Light and night have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50267, "storyId": 26, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["Sun", "grow"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Grow is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50270, "storyId": 27, "category": "story", "type": "multiple", "question": "Where do dolphins live?", "options": ["In the ocean", "In the desert"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In the ocean.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50271, "storyId": 27, "category": "inference", "type": "multiple", "question": "Why do dolphins work together?", "options": ["To build houses on land", "To find food and stay safe"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To find food and stay safe.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50272, "storyId": 27, "category": "theme", "type": "multiple", "question": "What do dolphins do in groups?", "options": ["Help each other", "Always stay alone"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Help each other.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50273, "storyId": 27, "category": "vocab", "type": "multiple", "question": "What is a pod?", "options": ["A kind of tree", "A group of dolphins"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A group of dolphins.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50274, "storyId": 27, "category": "context", "type": "multiple", "question": "How do dolphins talk?", "options": ["With clicks and whistles", "With books and letters"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "With clicks and whistles.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50275, "storyId": 27, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Birds and their nests", "Dolphins and their lives"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Dolphins and their lives.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50276, "storyId": 27, "category": "phonics", "type": "multiple", "question": "Which word rhymes with air?", "options": ["chair", "fish"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Air and chair have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50277, "storyId": 27, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["ocean", "breathe"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Breathe is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50280, "storyId": 28, "category": "story", "type": "multiple", "question": "Do deserts get much rain?", "options": ["No, they get little rain", "Yes, they get lots of rain"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "No, they get little rain.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50281, "storyId": 28, "category": "inference", "type": "multiple", "question": "Why do cacti store water?", "options": ["There is too much rain", "There is little rain"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "There is little rain.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50282, "storyId": 28, "category": "theme", "type": "multiple", "question": "Are all deserts hot?", "options": ["No, some are cold", "Yes, all are hot"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "No, some are cold.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50283, "storyId": 28, "category": "vocab", "type": "multiple", "question": "What is shelter?", "options": ["A kind of food", "A safe place to stay"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A safe place to stay.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50284, "storyId": 28, "category": "context", "type": "multiple", "question": "What helps fennec foxes stay cool?", "options": ["Their big ears", "Their long tails"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Their big ears.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50285, "storyId": 28, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Life in oceans", "Life in deserts"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Life in deserts.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50286, "storyId": 28, "category": "phonics", "type": "multiple", "question": "Which word rhymes with rain?", "options": ["train", "sun"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Rain and train have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50287, "storyId": 28, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["water", "store"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Store is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50310, "storyId": 31, "category": "story", "type": "multiple", "question": "What comes out of a volcano?", "options": ["Lava", "Milk"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Lava.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50311, "storyId": 31, "category": "inference", "type": "multiple", "question": "Why do scientists study volcanoes?", "options": ["To make people scared", "To keep people safe"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To keep people safe.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50312, "storyId": 31, "category": "theme", "type": "multiple", "question": "Are all volcanoes loud?", "options": ["No, some are quiet", "Yes, all are loud"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "No, some are quiet.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50313, "storyId": 31, "category": "vocab", "type": "multiple", "question": "What is lava?", "options": ["Cold water", "Hot melted rock"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Hot melted rock.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50314, "storyId": 31, "category": "context", "type": "multiple", "question": "What are volcanoes?", "options": ["Mountains that can explode", "Trees that can grow"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Mountains that can explode.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50315, "storyId": 31, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Snowstorms", "Volcanoes"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Volcanoes.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50316, "storyId": 31, "category": "phonics", "type": "multiple", "question": "Which word rhymes with loud?", "options": ["cloud", "rock"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Loud and cloud have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50317, "storyId": 31, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["rock", "explode"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Explode is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50320, "storyId": 32, "category": "story", "type": "multiple", "question": "Where do sharks live?", "options": ["In the ocean", "In a forest"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In the ocean.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50321, "storyId": 32, "category": "inference", "type": "multiple", "question": "Why do sharks need sharp teeth?", "options": ["To fly", "To eat food"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To eat food.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50322, "storyId": 32, "category": "theme", "type": "multiple", "question": "Are all sharks dangerous?", "options": ["No", "Yes"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "No.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50323, "storyId": 32, "category": "vocab", "type": "multiple", "question": "What is a hunter?", "options": ["An animal that builds nests", "An animal that finds food"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "An animal that finds food.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50324, "storyId": 32, "category": "context", "type": "multiple", "question": "What do some sharks eat?", "options": ["Tiny fish", "Grass"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Tiny fish.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50325, "storyId": 32, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Birds", "Sharks"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sharks.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50326, "storyId": 32, "category": "phonics", "type": "multiple", "question": "Which word rhymes with far?", "options": ["car", "fish"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Far and car have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50327, "storyId": 32, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["teeth", "eat"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Eat is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50330, "storyId": 33, "category": "story", "type": "multiple", "question": "What can robots build?", "options": ["Cars", "Trees"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Cars.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50331, "storyId": 33, "category": "inference", "type": "multiple", "question": "Why do people use robots?", "options": ["Robots need food", "Robots help with jobs"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Robots help with jobs.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50332, "storyId": 33, "category": "theme", "type": "multiple", "question": "What do robots do for people?", "options": ["They help", "They only play"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "They help.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50333, "storyId": 33, "category": "vocab", "type": "multiple", "question": "What is a machine?", "options": ["A living animal", "A tool that does work"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A tool that does work.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50334, "storyId": 33, "category": "context", "type": "multiple", "question": "What can some robots clean?", "options": ["Houses", "Clouds"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Houses.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50335, "storyId": 33, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Foods animals can eat", "Jobs robots can do"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Jobs robots can do.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50336, "storyId": 33, "category": "phonics", "type": "multiple", "question": "Which word rhymes with walk?", "options": ["talk", "car"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Walk and talk have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50337, "storyId": 33, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["house", "clean"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Clean is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50430, "storyId": 43, "category": "story", "type": "multiple", "question": "What does the truck have?", "options": ["Big wheels", "Small wings"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Big wheels.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50431, "storyId": 43, "category": "inference", "type": "multiple", "question": "Why can people hear the truck?", "options": ["It is quiet", "It is loud"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It is loud.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50432, "storyId": 43, "category": "theme", "type": "multiple", "question": "Does the writer like monster trucks?", "options": ["Yes", "No"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50433, "storyId": 43, "category": "vocab", "type": "multiple", "question": "What does loud mean?", "options": ["Makes no sound", "Makes lots of sound"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Makes lots of sound.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50434, "storyId": 43, "category": "context", "type": "multiple", "question": "What can the truck do?", "options": ["Jump", "Swim"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Jump.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50435, "storyId": 43, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A small boat", "A big truck"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A big truck.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50436, "storyId": 43, "category": "phonics", "type": "multiple", "question": "Which word rhymes with big?", "options": ["pig", "truck"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Big and pig have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50437, "storyId": 43, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["wheels", "jump"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Jump is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50440, "storyId": 44, "category": "story", "type": "multiple", "question": "Where does the rocket go?", "options": ["To space", "To a lake"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To space.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50441, "storyId": 44, "category": "inference", "type": "multiple", "question": "Does the writer like the rocket?", "options": ["No, it is boring", "Yes, it is cool"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes, it is cool.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50442, "storyId": 44, "category": "theme", "type": "multiple", "question": "How does the rocket move?", "options": ["Fast", "Slow"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Fast.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50443, "storyId": 44, "category": "vocab", "type": "multiple", "question": "What does fast mean?", "options": ["Slow", "Quick"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Quick.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50444, "storyId": 44, "category": "context", "type": "multiple", "question": "Which way does the rocket go?", "options": ["Up", "Down"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Up.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50445, "storyId": 44, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A boat going to sea", "A rocket going to space"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A rocket going to space.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50446, "storyId": 44, "category": "phonics", "type": "multiple", "question": "Which word rhymes with up?", "options": ["cup", "car"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Up and cup have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50447, "storyId": 44, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["rocket", "goes"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Goes is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50450, "storyId": 45, "category": "story", "type": "multiple", "question": "What color is the robot?", "options": ["Red", "Blue"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Red.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50451, "storyId": 45, "category": "inference", "type": "multiple", "question": "Does the writer enjoy the robot?", "options": ["No, it is scary", "Yes, it is fun"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes, it is fun.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50452, "storyId": 45, "category": "theme", "type": "multiple", "question": "What can the robot do?", "options": ["Walk and talk", "Eat and sleep"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Walk and talk.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50453, "storyId": 45, "category": "vocab", "type": "multiple", "question": "What does fun mean?", "options": ["Boring", "Enjoyable"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Enjoyable.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50454, "storyId": 45, "category": "context", "type": "multiple", "question": "What sound does the robot make?", "options": ["Beep, beep", "Moo, moo"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Beep, beep.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50455, "storyId": 45, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A blue car", "A red robot"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A red robot.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50456, "storyId": 45, "category": "phonics", "type": "multiple", "question": "Which word rhymes with walk?", "options": ["talk", "red"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Walk and talk have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50457, "storyId": 45, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["robot", "walk"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Walk is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50460, "storyId": 46, "category": "story", "type": "multiple", "question": "What color is the car?", "options": ["Blue", "Red"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Blue.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50461, "storyId": 46, "category": "inference", "type": "multiple", "question": "Does the writer like cars?", "options": ["No, cars are boring", "Yes, cars are cool"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes, cars are cool.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50462, "storyId": 46, "category": "theme", "type": "multiple", "question": "How does the car move?", "options": ["Fast", "Slow"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Fast.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50463, "storyId": 46, "category": "vocab", "type": "multiple", "question": "What does fast mean?", "options": ["Slow", "Quick"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Quick.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50464, "storyId": 46, "category": "context", "type": "multiple", "question": "What sound does the car make?", "options": ["Vroom", "Meow"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Vroom.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50465, "storyId": 46, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A slow red boat", "A fast blue car"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A fast blue car.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50466, "storyId": 46, "category": "phonics", "type": "multiple", "question": "Which word rhymes with go?", "options": ["snow", "car"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Go and snow have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50467, "storyId": 46, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["car", "go"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Go is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50470, "storyId": 47, "category": "story", "type": "multiple", "question": "What does Jake ride?", "options": ["A skateboard", "A horse"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A skateboard.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50471, "storyId": 47, "category": "inference", "type": "multiple", "question": "Why do Jake's friends cheer?", "options": ["Jake loses his board", "Jake does the trick"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Jake does the trick.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50472, "storyId": 47, "category": "theme", "type": "multiple", "question": "What helps Jake do the trick?", "options": ["Trying again", "Giving up"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Trying again.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50473, "storyId": 47, "category": "vocab", "type": "multiple", "question": "What does cheer mean?", "options": ["Whisper with sadness", "Shout with joy"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Shout with joy.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50474, "storyId": 47, "category": "context", "type": "multiple", "question": "Where does Jake ride?", "options": ["To the park", "To a farm"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To the park.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50475, "storyId": 47, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Jake learns to cook", "Jake learns a skateboard trick"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Jake learns a skateboard trick.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50476, "storyId": 47, "category": "phonics", "type": "multiple", "question": "Which word rhymes with park?", "options": ["dark", "board"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Park and dark have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50477, "storyId": 47, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["park", "rides"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Rides is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50480, "storyId": 48, "category": "story", "type": "multiple", "question": "What do scientists find?", "options": ["Dinosaur bones", "Dinosaur toys"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Dinosaur bones.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50481, "storyId": 48, "category": "inference", "type": "multiple", "question": "Why do scientists study the bones?", "options": ["To learn about cars", "To learn about dinosaurs"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To learn about dinosaurs.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50482, "storyId": 48, "category": "theme", "type": "multiple", "question": "What can bones teach us about?", "options": ["Dinosaurs", "Robots"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Dinosaurs.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50483, "storyId": 48, "category": "vocab", "type": "multiple", "question": "What is a museum?", "options": ["A place to buy food", "A place to see and learn"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A place to see and learn.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50484, "storyId": 48, "category": "context", "type": "multiple", "question": "Where can we see dinosaur bones?", "options": ["In museums", "In grocery stores"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In museums.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50485, "storyId": 48, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Building dinosaur toys", "Finding dinosaur bones"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Finding dinosaur bones.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50486, "storyId": 48, "category": "phonics", "type": "multiple", "question": "Which word rhymes with big?", "options": ["pig", "bone"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Big and pig have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50487, "storyId": 48, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["bones", "dig"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Dig is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50490, "storyId": 49, "category": "story", "type": "multiple", "question": "What game does Marcus play?", "options": ["A video game", "A soccer game"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A video game.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50491, "storyId": 49, "category": "inference", "type": "multiple", "question": "Why does Marcus practice?", "options": ["He wants to lose", "He wants to win"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He wants to win.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50492, "storyId": 49, "category": "theme", "type": "multiple", "question": "What helps Marcus win?", "options": ["Practice", "Never playing"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Practice.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50493, "storyId": 49, "category": "vocab", "type": "multiple", "question": "What is a trophy?", "options": ["A snack", "A prize"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A prize.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50494, "storyId": 49, "category": "context", "type": "multiple", "question": "What place does Marcus win?", "options": ["First", "Last"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "First.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50495, "storyId": 49, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Marcus learns to swim", "Marcus wins a game contest"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Marcus wins a game contest.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50496, "storyId": 49, "category": "phonics", "type": "multiple", "question": "Which word rhymes with game?", "options": ["name", "cup"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Game and name have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50497, "storyId": 49, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["trophy", "played"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Played is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50500, "storyId": 50, "category": "story", "type": "multiple", "question": "Where can rockets go?", "options": ["To space", "Under the sea"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To space.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50501, "storyId": 50, "category": "inference", "type": "multiple", "question": "Why does a rocket move up?", "options": ["Wings flap", "Gases push it up"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Gases push it up.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50502, "storyId": 50, "category": "theme", "type": "multiple", "question": "What helps rockets go to space?", "options": ["Burning fuel", "Drinking water"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Burning fuel.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50503, "storyId": 50, "category": "vocab", "type": "multiple", "question": "What is fuel?", "options": ["Something worn for warmth", "Something burned for power"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Something burned for power.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50504, "storyId": 50, "category": "context", "type": "multiple", "question": "Where do hot gases come out?", "options": ["The bottom", "The top"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "The bottom.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50505, "storyId": 50, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["How birds sleep", "How rockets move"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "How rockets move.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50506, "storyId": 50, "category": "phonics", "type": "multiple", "question": "Which word rhymes with fast?", "options": ["last", "sky"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Fast and last have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50507, "storyId": 50, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["fuel", "burn"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Burn is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50550, "storyId": 55, "category": "story", "type": "multiple", "question": "What kind of car is this?", "options": ["A police car", "A race car"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A police car.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50551, "storyId": 55, "category": "inference", "type": "multiple", "question": "Why are police cars important?", "options": ["They grow food", "They help people"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "They help people.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50552, "storyId": 55, "category": "theme", "type": "multiple", "question": "Who does the car help?", "options": ["People", "Only plants"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "People.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50553, "storyId": 55, "category": "vocab", "type": "multiple", "question": "What does fast mean?", "options": ["Slow", "Quick"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Quick.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50554, "storyId": 55, "category": "context", "type": "multiple", "question": "What does the police car have?", "options": ["Lights", "Wings"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Lights.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50555, "storyId": 55, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A school bus", "A police car"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A police car.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50556, "storyId": 55, "category": "phonics", "type": "multiple", "question": "Which word rhymes with car?", "options": ["star", "bus"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Car and star have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50557, "storyId": 55, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["lights", "helps"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Helps is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50560, "storyId": 56, "category": "story", "type": "multiple", "question": "What goes in the box?", "options": ["Toys", "Food"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Toys.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50561, "storyId": 56, "category": "inference", "type": "multiple", "question": "Why does the writer use a toy box?", "options": ["To keep water in it", "To keep toys in it"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To keep toys in it.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50562, "storyId": 56, "category": "theme", "type": "multiple", "question": "Does the writer like the toys?", "options": ["Yes", "No"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50563, "storyId": 56, "category": "vocab", "type": "multiple", "question": "What does big mean?", "options": ["Small", "Large"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Large.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50564, "storyId": 56, "category": "context", "type": "multiple", "question": "Which toy is in the box?", "options": ["A ball", "A boat"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A ball.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50565, "storyId": 56, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A bag of food", "A box of toys"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A box of toys.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50566, "storyId": 56, "category": "phonics", "type": "multiple", "question": "Which word rhymes with box?", "options": ["fox", "ball"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Box and fox have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50567, "storyId": 56, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["toys", "put"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Put is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50570, "storyId": 57, "category": "story", "type": "multiple", "question": "What flies up high?", "options": ["A helicopter", "A car"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A helicopter.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50571, "storyId": 57, "category": "inference", "type": "multiple", "question": "Why can people hear it?", "options": ["It is silent", "It is loud"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It is loud.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50572, "storyId": 57, "category": "theme", "type": "multiple", "question": "Does the writer like helicopters?", "options": ["Yes, they are cool", "No, they are boring"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes, they are cool.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50573, "storyId": 57, "category": "vocab", "type": "multiple", "question": "What does loud mean?", "options": ["Makes no sound", "Makes lots of sound"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Makes lots of sound.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50574, "storyId": 57, "category": "context", "type": "multiple", "question": "What sound does it make?", "options": ["Chop, chop", "Meow, meow"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Chop, chop.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50575, "storyId": 57, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A submarine", "A helicopter"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A helicopter.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50576, "storyId": 57, "category": "phonics", "type": "multiple", "question": "Which word rhymes with high?", "options": ["sky", "low"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "High and sky have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50577, "storyId": 57, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["helicopter", "flies"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Flies is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50580, "storyId": 58, "category": "story", "type": "multiple", "question": "Who builds the fort with Alex?", "options": ["His sister", "His teacher"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "His sister.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50581, "storyId": 58, "category": "inference", "type": "multiple", "question": "Why do they bring books inside?", "options": ["To plant them", "To read in the fort"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To read in the fort.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50582, "storyId": 58, "category": "theme", "type": "multiple", "question": "How do they build the fort?", "options": ["Together", "Without helping each other"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Together.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50583, "storyId": 58, "category": "vocab", "type": "multiple", "question": "What does cozy mean?", "options": ["Cold and wet", "Warm and comfortable"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Warm and comfortable.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50584, "storyId": 58, "category": "context", "type": "multiple", "question": "What do they put over the chairs?", "options": ["Blankets", "Paper"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Blankets.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50585, "storyId": 58, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Children build a boat", "Children build a fort"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Children build a fort.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50586, "storyId": 58, "category": "phonics", "type": "multiple", "question": "Which word rhymes with toys?", "options": ["boys", "books"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Toys and boys have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50587, "storyId": 58, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["blankets", "build"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Build is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50590, "storyId": 59, "category": "story", "type": "multiple", "question": "Who teaches fire safety?", "options": ["Firefighters", "Farmers"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Firefighters.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50591, "storyId": 59, "category": "inference", "type": "multiple", "question": "Why should we check smoke alarms?", "options": ["To help us cook", "To help keep us safe"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To help keep us safe.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50592, "storyId": 59, "category": "theme", "type": "multiple", "question": "Should we play with matches?", "options": ["No", "Yes"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "No.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50593, "storyId": 59, "category": "vocab", "type": "multiple", "question": "What does safe mean?", "options": ["In danger", "Away from danger"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Away from danger.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50594, "storyId": 59, "category": "context", "type": "multiple", "question": "Where should a family meet in a fire?", "options": ["Outside", "In a bedroom"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Outside.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50595, "storyId": 59, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Playing with fire", "Staying safe from fire"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Staying safe from fire.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50596, "storyId": 59, "category": "phonics", "type": "multiple", "question": "Which word rhymes with roll?", "options": ["bowl", "fire"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Roll and bowl have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50597, "storyId": 59, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["alarms", "roll"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Roll is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50600, "storyId": 60, "category": "story", "type": "multiple", "question": "What toy does Sam lose?", "options": ["A car", "A ball"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A car.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50601, "storyId": 60, "category": "inference", "type": "multiple", "question": "Why is the toy outside?", "options": ["The cat took it there", "The dog took it there"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "The dog took it there.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50602, "storyId": 60, "category": "theme", "type": "multiple", "question": "Where does Sam keep his toys now?", "options": ["In a safe place", "In the street"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In a safe place.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50603, "storyId": 60, "category": "vocab", "type": "multiple", "question": "What does lost mean?", "options": ["Can see it", "Cannot find it"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Cannot find it.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50604, "storyId": 60, "category": "context", "type": "multiple", "question": "Where does Sam find his toy?", "options": ["In the backyard", "Under his bed"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In the backyard.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50605, "storyId": 60, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Sam buys a new toy", "Sam finds his lost toy"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sam finds his lost toy.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50606, "storyId": 60, "category": "phonics", "type": "multiple", "question": "Which word rhymes with toy?", "options": ["boy", "car"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Toy and boy have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50607, "storyId": 60, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["car", "looked"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Looked is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50610, "storyId": 61, "category": "story", "type": "multiple", "question": "What do bees make?", "options": ["Honey", "Milk"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Honey.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50611, "storyId": 61, "category": "inference", "type": "multiple", "question": "Why do bees fan their wings?", "options": ["To wet the nectar", "To dry the nectar"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To dry the nectar.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50612, "storyId": 61, "category": "theme", "type": "multiple", "question": "What do bees collect for honey?", "options": ["Nectar", "Stones"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Nectar.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50613, "storyId": 61, "category": "vocab", "type": "multiple", "question": "What is nectar?", "options": ["Dry dust from rocks", "Sweet liquid from flowers"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Sweet liquid from flowers.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50614, "storyId": 61, "category": "context", "type": "multiple", "question": "Where do bees store nectar?", "options": ["At the hive", "In the ocean"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "At the hive.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50615, "storyId": 61, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["How birds build nests", "How bees make honey"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "How bees make honey.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50616, "storyId": 61, "category": "phonics", "type": "multiple", "question": "Which word rhymes with bee?", "options": ["tree", "bug"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Bee and tree have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50617, "storyId": 61, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["flowers", "fly"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Fly is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50620, "storyId": 62, "category": "story", "type": "multiple", "question": "What does Mia wear?", "options": ["Rain boots", "Sandals"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Rain boots.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50621, "storyId": 62, "category": "inference", "type": "multiple", "question": "Why do Mia's feet stay dry?", "options": ["She takes off her shoes", "She wears boots"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "She wears boots.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50622, "storyId": 62, "category": "theme", "type": "multiple", "question": "Does Mia enjoy puddle jumping?", "options": ["Yes", "No"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50623, "storyId": 62, "category": "vocab", "type": "multiple", "question": "What is a puddle?", "options": ["A pile of sand", "A small pool of water"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A small pool of water.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50624, "storyId": 62, "category": "context", "type": "multiple", "question": "Why are there puddles?", "options": ["It rained", "It snowed"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It rained.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50625, "storyId": 62, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Mia swims in a pool", "Mia jumps in puddles"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Mia jumps in puddles.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50626, "storyId": 62, "category": "phonics", "type": "multiple", "question": "Which word rhymes with rain?", "options": ["train", "boot"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Rain and train have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50627, "storyId": 62, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["boots", "jumped"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Jumped is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50630, "storyId": 63, "category": "story", "type": "multiple", "question": "What do Sofia and her brother sell?", "options": ["Lemonade", "Milk"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Lemonade.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50631, "storyId": 63, "category": "inference", "type": "multiple", "question": "Why do neighbors buy lemonade?", "options": ["It is a snowy day", "It is a hot day"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It is a hot day.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50632, "storyId": 63, "category": "theme", "type": "multiple", "question": "What helps the children do well?", "options": ["Working together", "Doing nothing"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Working together.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50633, "storyId": 63, "category": "vocab", "type": "multiple", "question": "What does equally mean?", "options": ["One gets everything", "Each gets the same amount"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Each gets the same amount.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50634, "storyId": 63, "category": "context", "type": "multiple", "question": "Where is their table?", "options": ["In front of their house", "Inside their school"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In front of their house.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50635, "storyId": 63, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Children buy ice cream", "Children sell lemonade"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Children sell lemonade.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50636, "storyId": 63, "category": "phonics", "type": "multiple", "question": "Which word rhymes with sign?", "options": ["line", "cup"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Sign and line have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50637, "storyId": 63, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["lemons", "sold"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Sold is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50640, "storyId": 64, "category": "story", "type": "multiple", "question": "What does Ben learn?", "options": ["To swim", "To ride a bike"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To swim.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50641, "storyId": 64, "category": "inference", "type": "multiple", "question": "Why does Ben become braver?", "options": ["He never gets in the pool", "He practices with a kind teacher"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "He practices with a kind teacher.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50642, "storyId": 64, "category": "theme", "type": "multiple", "question": "What helps Ben learn to swim?", "options": ["Practice", "Giving up"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Practice.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50643, "storyId": 64, "category": "vocab", "type": "multiple", "question": "What does afraid mean?", "options": ["Happy", "Scared"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Scared.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50644, "storyId": 64, "category": "context", "type": "multiple", "question": "What does Ben practice first?", "options": ["Floating on his back", "Moving his arms"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Floating on his back.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50645, "storyId": 64, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Ben learns to sing", "Ben learns to swim"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Ben learns to swim.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50646, "storyId": 64, "category": "phonics", "type": "multiple", "question": "Which word rhymes with pool?", "options": ["school", "fish"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Pool and school have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50647, "storyId": 64, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["pool", "swam"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Swam is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50660, "storyId": 66, "category": "story", "type": "multiple", "question": "Which planet do we live on?", "options": ["Earth", "Mars"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Earth.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50661, "storyId": 66, "category": "inference", "type": "multiple", "question": "Why is Mars called the Red Planet?", "options": ["It looks blue", "It looks red"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It looks red.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50662, "storyId": 66, "category": "theme", "type": "multiple", "question": "What do planets move around?", "options": ["The Sun", "The Moon"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "The Sun.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50663, "storyId": 66, "category": "vocab", "type": "multiple", "question": "What does largest mean?", "options": ["Smallest", "Biggest"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Biggest.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50664, "storyId": 66, "category": "context", "type": "multiple", "question": "Which planet has rings?", "options": ["Saturn", "Mercury"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Saturn.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50665, "storyId": 66, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["The oceans", "The planets"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "The planets.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50666, "storyId": 66, "category": "phonics", "type": "multiple", "question": "Which word rhymes with red?", "options": ["bed", "sun"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Red and bed have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50667, "storyId": 66, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["planet", "spins"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Spins is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50670, "storyId": 67, "category": "story", "type": "multiple", "question": "What does Aisha test?", "options": ["Paper towels", "Toy cars"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Paper towels.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50671, "storyId": 67, "category": "inference", "type": "multiple", "question": "Why does Aisha use the same water amount?", "options": ["To make a pretty poster", "To make a fair test"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To make a fair test.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50672, "storyId": 67, "category": "theme", "type": "multiple", "question": "What helps Aisha learn which towel is strongest?", "options": ["Testing carefully", "Guessing without testing"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Testing carefully.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50673, "storyId": 67, "category": "vocab", "type": "multiple", "question": "What does strongest mean?", "options": ["Easiest to tear", "Hardest to tear"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Hardest to tear.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50674, "storyId": 67, "category": "context", "type": "multiple", "question": "What does Aisha put on wet towels?", "options": ["Pennies", "Flowers"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Pennies.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50675, "storyId": 67, "category": "summary", "type": "multiple", "question": "What is this story about?", "options": ["Aisha sells paper towels", "Aisha tests paper towels"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Aisha tests paper towels.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50676, "storyId": 67, "category": "phonics", "type": "multiple", "question": "Which word rhymes with wet?", "options": ["pet", "dry"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Wet and pet have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50677, "storyId": 67, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["pennies", "placed"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Placed is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50990, "storyId": 99, "category": "story", "type": "multiple", "question": "What shape is the ball?", "options": ["Round", "Square"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Round.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50991, "storyId": 99, "category": "inference", "type": "multiple", "question": "Why do players kick the ball?", "options": ["To make a cake", "To score a goal"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To score a goal.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50992, "storyId": 99, "category": "theme", "type": "multiple", "question": "Does the writer enjoy soccer?", "options": ["Yes", "No"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Yes.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50993, "storyId": 99, "category": "vocab", "type": "multiple", "question": "What does round mean?", "options": ["Shaped like a square", "Shaped like a circle"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Shaped like a circle.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50994, "storyId": 99, "category": "context", "type": "multiple", "question": "What colors are on the ball?", "options": ["Black and white", "Red and blue"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Black and white.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50995, "storyId": 99, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["A tennis racket", "A soccer ball"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "A soccer ball.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 50996, "storyId": 99, "category": "phonics", "type": "multiple", "question": "Which word rhymes with ball?", "options": ["tall", "goal"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Ball and tall have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 50997, "storyId": 99, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["ball", "kick"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Kick is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51000, "storyId": 100, "category": "story", "type": "multiple", "question": "Where is your brain?", "options": ["In your head", "In your foot"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "In your head.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51001, "storyId": 100, "category": "inference", "type": "multiple", "question": "Why should you care for your brain?", "options": ["It does nothing", "It helps your body"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It helps your body.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51002, "storyId": 100, "category": "theme", "type": "multiple", "question": "What does your brain help you do?", "options": ["Think and feel", "Grow wings"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Think and feel.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51003, "storyId": 100, "category": "vocab", "type": "multiple", "question": "What does think mean?", "options": ["Use your shoes", "Use your mind"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Use your mind.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51004, "storyId": 100, "category": "context", "type": "multiple", "question": "What tells your body what to do?", "options": ["Your brain", "Your shoes"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Your brain.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51005, "storyId": 100, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["How your shoes help you", "How your brain helps you"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "How your brain helps you.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51006, "storyId": 100, "category": "phonics", "type": "multiple", "question": "Which word rhymes with head?", "options": ["bed", "hand"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Head and bed have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51007, "storyId": 100, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["brain", "walk"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Walk is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51010, "storyId": 101, "category": "story", "type": "multiple", "question": "What do you need to make the plane?", "options": ["Paper", "Cloth"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Paper.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51011, "storyId": 101, "category": "inference", "type": "multiple", "question": "Why do you fold the paper?", "options": ["To make a drink", "To make a plane shape"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "To make a plane shape.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51012, "storyId": 101, "category": "theme", "type": "multiple", "question": "What helps you make the plane?", "options": ["Following the steps", "Throwing the paper away"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Following the steps.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51013, "storyId": 101, "category": "vocab", "type": "multiple", "question": "What does fold mean?", "options": ["Rip into pieces", "Bend one part over another"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Bend one part over another.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51014, "storyId": 101, "category": "context", "type": "multiple", "question": "What do you do with the finished plane?", "options": ["Throw it to fly", "Put it in water"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Throw it to fly.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51015, "storyId": 101, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Making a paper boat", "Making a paper plane"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Making a paper plane.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51016, "storyId": 101, "category": "phonics", "type": "multiple", "question": "Which word rhymes with plane?", "options": ["rain", "book"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Plane and rain have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51017, "storyId": 101, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["paper", "fold"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Fold is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51020, "storyId": 102, "category": "story", "type": "multiple", "question": "What do kids need each night?", "options": ["About ten hours of sleep", "About one hour of sleep"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "About ten hours of sleep.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51021, "storyId": 102, "category": "inference", "type": "multiple", "question": "Why is sleep important?", "options": ["It stops your body growing", "It helps your body grow"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "It helps your body grow.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51022, "storyId": 102, "category": "theme", "type": "multiple", "question": "What helps you pay attention at school?", "options": ["Enough sleep", "No sleep"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Enough sleep.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51023, "storyId": 102, "category": "vocab", "type": "multiple", "question": "What does grumpy mean?", "options": ["Happy and calm", "Unhappy and cross"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Unhappy and cross.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51024, "storyId": 102, "category": "context", "type": "multiple", "question": "When does your body rest and heal?", "options": ["While you sleep", "While you run"], "correct": 0, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "While you sleep.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51025, "storyId": 102, "category": "summary", "type": "multiple", "question": "What is this text about?", "options": ["Why we need shoes", "Why we need sleep"], "correct": 1, "hint": "Read or listen to the story again. Look for the part that helps you.", "explanation": "Why we need sleep.", "wrongFeedback": ["Look at the story and try again.", ""]},
+            {"id": 51026, "storyId": 102, "category": "phonics", "type": "multiple", "question": "Which word rhymes with night?", "options": ["light", "bed"], "correct": 0, "hint": "Listen to the sounds at the ends of the words.", "explanation": "Night and light have the same ending sound.", "wrongFeedback": ["", "Look at the story and try again."]},
+            {"id": 51027, "storyId": 102, "category": "grammar", "type": "multiple", "question": "Which word is a verb (an action word)?", "options": ["brain", "sleep"], "correct": 1, "hint": "A verb can show an action (something you do).", "explanation": "Sleep is a verb (an action word).", "wrongFeedback": ["Look at the story and try again.", ""]},
             ];

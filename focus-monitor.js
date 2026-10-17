@@ -87,7 +87,7 @@ var FocusMonitor = (function() {
         fullscreenPrompt = document.createElement('div');
         fullscreenPrompt.className = 'fullscreen-prompt';
         fullscreenPrompt.innerHTML =
-            '<span class="fullscreen-prompt-text">For the best focus, please use fullscreen mode</span>' +
+            '<span class="fullscreen-prompt-text">Fullscreen is optional. You can keep reading in this window.</span>' +
             '<button class="fullscreen-prompt-btn" id="focusGoFullscreenBtn">Go Fullscreen</button>' +
             '<button class="fullscreen-prompt-dismiss" id="focusDismissFullscreenBtn">Dismiss</button>';
         document.body.appendChild(fullscreenPrompt);
@@ -524,8 +524,7 @@ var FocusMonitor = (function() {
         bindActivityListeners();
         resetIdleTimer();
 
-        // Request fullscreen
-        requestFullscreen();
+        // Practice works in a normal browser window; fullscreen is optional.
 
         logEvent('monitor_start');
     }
